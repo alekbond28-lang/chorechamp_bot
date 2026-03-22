@@ -9,9 +9,9 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# Загружаем токен из .env
+# Загружаем токен из окружения (.env локально, переменные окружения на Render)
 load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 # Простое хранилище в памяти
 tasks = {}         # id -> {title, points, next_due}
@@ -128,10 +128,7 @@ async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Рейтинг:\n" + "\n".join(lines))
 
 
-import asyncio
-
-
-async def main():
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -140,12 +137,8 @@ async def main():
     app.add_handler(CommandHandler("done", done))
     app.add_handler(CommandHandler("score", score))
 
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    await asyncio.Event().wait()  # держим бота в работе
+    app.run_polling()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
-
+    main()
