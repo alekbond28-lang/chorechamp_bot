@@ -139,8 +139,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = get_or_create_user(session, update.effective_user)
         ensure_default_tasks(session)
 
-    # ВРЕМЕННАЯ проверка chat_id
-    await update.message.reply_text(f"MAIN_CHAT_ID: {MAIN_CHAT_ID}")
+   
 
     await update.message.reply_text(
         "Привет! Это бот для домашних дел.\n\n"
