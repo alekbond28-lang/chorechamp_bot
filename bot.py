@@ -172,15 +172,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Пока бот работает в одной группе/чате как один 'дом'."
     )
 
-    # Тестовый джоб: один раз через минуту после /start
-    from datetime import datetime, timedelta
-    run_at = datetime.now(LOCAL_TZ) + timedelta(minutes=1)
-    context.job_queue.run_once(
-        test_job,
-        when=run_at,
-        data={"chat_id": update.effective_chat.id},
-        name="test_job",
-    )
 
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -856,15 +847,6 @@ async def run_http_server():
     await site.start()
 
 
-# -------- Тестовый джоб для проверки времени --------
-
-async def test_job(context: ContextTypes.DEFAULT_TYPE):
-    chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
-    if chat_id is None:
-        return
-    await context.bot.send_message(chat_id=chat_id, text="Тестовый джоб сработал ✅")
-
-
 # -------- Запуск бота + HTTP-сервер --------
 
 def main():
@@ -884,8 +866,6 @@ def main():
     application.add_handler(CallbackQueryHandler(task_button_handler))
 
     job_queue = application.job_queue
-
-    
 
     # Ежедневный дайджест в 9:00 по Москве
     job_queue.run_daily(
