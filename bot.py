@@ -1,6 +1,6 @@
 import os
 import asyncio
-from datetime import timedelta
+from datetime import timedelta, time
 
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -77,6 +77,30 @@ def ensure_default_tasks(session):
         session.add(inst)
     session.commit()
 
+async def carry_over_tasks(context: ContextTypes.DEFAULT_TYPE):
+    """Переносит невыполненные задачи на завтра и помечает их HIGH."""
+    today_date = get_today()
+    tomorrow = today_date + timedelta(days=1)
+
+    with SessionLocal() as session:
+        instances = (
+            session.query(TaskInstance)
+            .filter(TaskInstance.date == today_date)
+            .filter(TaskInstance.status != "done")
+            .all()
+        )
+
+        for inst in instances:
+            # Помечаем перенесённую как HIGH
+            new_inst = TaskInstance(
+                template_id=inst.template_id,
+                date=tomorrow,
+                status="free",
+                priority="high",
+            )
+            session.add(new_inst)
+
+        session.commit()
 
 # ---------- Хендлеры бота ----------
 
@@ -398,10 +422,18 @@ def main():
     application.add_handler(CommandHandler("score", score))
     application.add_handler(CallbackQueryHandler(task_button_handler))
 
+    # Ежедневный перенос задач (время в UTC)
+    job_queue = application.job_queue
+    job_queue.run_daily(
+        carry_over_tasks,
+        time=time(hour=20, minute=55),
+        name="carry_over_tasks",
+    )  # [web:310]
 
     loop = asyncio.get_event_loop()
     loop.create_task(run_http_server())
     application.run_polling()
+
 
 
 if __name__ == "__main__":
