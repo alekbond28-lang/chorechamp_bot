@@ -132,19 +132,30 @@ def get_period_bounds_for_today():
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global MAIN_CHAT_ID
+    MAIN_CHAT_ID = update.effective_chat.id
+
     with SessionLocal() as session:
         user = get_or_create_user(session, update.effective_user)
         ensure_default_tasks(session)
+
+    # ВРЕМЕННАЯ проверка chat_id
+    await update.message.reply_text(f"MAIN_CHAT_ID: {MAIN_CHAT_ID}")
 
     await update.message.reply_text(
         "Привет! Это бот для домашних дел.\n\n"
         "Основные команды:\n"
         "/add название | баллы — добавить задачу\n"
         "/today — дела на сегодня\n"
+        "/again — добавить ещё раз выполненную задачу\n"
         "/done id — отметить выполненным\n"
-        "/score — рейтинг по баллам (упрощённая версия)\n\n"
+        "/score — рейтинг по баллам (упрощённая версия)\n"
+        "/stats — общая статистика\n"
+        "/my_stats — личная статистика\n"
+        "/leaderboard — лидеры\n\n"
         "Пока бот работает в одной группе/чате как один 'дом'."
     )
+
 
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
