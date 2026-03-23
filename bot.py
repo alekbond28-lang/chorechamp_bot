@@ -145,8 +145,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Этот бот доступен только по приглашению.\n"
             f"Твой id: {update.effective_user.id}\n"
             "Передай его владельцу, чтобы он добавил тебя."
-    )
-    return
+        )
+        return
 
     global MAIN_CHAT_ID
     MAIN_CHAT_ID = update.effective_chat.id
@@ -177,8 +177,8 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Этот бот доступен только по приглашению.\n"
             f"Твой id: {update.effective_user.id}\n"
             "Передай его владельцу, чтобы он добавил тебя."
-    )
-    return
+        )
+        return
 
     if not context.args:
         await update.message.reply_text("Формат: /add Название | баллы")
@@ -231,8 +231,8 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Этот бот доступен только по приглашению.\n"
             f"Твой id: {update.effective_user.id}\n"
             "Передай его владельцу, чтобы он добавил тебя."
-    )
-    return
+        )
+        return
 
     chat_id = update.effective_chat.id
     today_date = get_today()
@@ -308,8 +308,8 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Этот бот доступен только по приглашению.\n"
             f"Твой id: {update.effective_user.id}\n"
             "Передай его владельцу, чтобы он добавил тебя."
-    )
-    return
+        )
+        return
 
     if not context.args:
         await update.message.reply_text("Формат: /done id_задачи")
@@ -355,8 +355,8 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Этот бот доступен только по приглашению.\n"
             f"Твой id: {update.effective_user.id}\n"
             "Передай его владельцу, чтобы он добавил тебя."
-    )
-    return
+        )
+        return
 
     """Показать задачи на сегодня с кнопками для повторного выполнения."""
     chat_id = update.effective_chat.id
@@ -547,8 +547,8 @@ async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Этот бот доступен только по приглашению.\n"
             f"Твой id: {update.effective_user.id}\n"
             "Передай его владельцу, чтобы он добавил тебя."
-    )
-    return
+        )
+        return
 
     with SessionLocal() as session:
         rows = (
@@ -602,8 +602,8 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Этот бот доступен только по приглашению.\n"
             f"Твой id: {update.effective_user.id}\n"
             "Передай его владельцу, чтобы он добавил тебя."
-    )
-    return
+        )
+        return
 
     """Общая статистика по дому: неделя, месяц, год, всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
@@ -667,8 +667,8 @@ async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Этот бот доступен только по приглашению.\n"
             f"Твой id: {update.effective_user.id}\n"
             "Передай его владельцу, чтобы он добавил тебя."
-    )
-    return
+        )
+        return
 
     """Личная статистика пользователя: неделя, месяц, год, всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
@@ -717,8 +717,8 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Этот бот доступен только по приглашению.\n"
             f"Твой id: {update.effective_user.id}\n"
             "Передай его владельцу, чтобы он добавил тебя."
-    )
-    return
+        )
+        return
 
     """Лидеры за неделю, месяц, год и всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
