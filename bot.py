@@ -3,6 +3,7 @@ import asyncio
 from datetime import timedelta, time, date
 from zoneinfo import ZoneInfo
 
+from telegram.ext import MessageHandler, filters
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -188,49 +189,72 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if not context.args:
-        await update.message.reply_text("Формат: /add Название | баллы")
-        return
+    context.user_data["add_state"] = "waiting_title"
+    context.user_data.pop("add_title", None)
+    context.user_data.pop("add_points", None)
 
-    text = " ".join(context.args)
-    if "|" not in text:
-        await update.message.reply_text("Нужно: Название | баллы")
-        return
+    await update.message.reply_text("Пришли название задачи.")
 
-    title_part, points_part = [p.strip() for p in text.split("|", 1)]
-    if not title_part:
-        await update.message.reply_text("Пустое название")
-        return
-
-    try:
-        points = int(points_part)
-    except ValueError:
-        await update.message.reply_text("Баллы должны быть числом")
-        return
-
-    with SessionLocal() as session:
-        tmpl = TaskTemplate(
-            title=title_part,
-            description=None,
-            periodicity="daily",  # пока всегда ежедневно
-            points=points,
+async def add_task_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Обрабатываем только текстовые сообщения в контексте добавления задачи
+    if not is_allowed(update):
+        await update.message.reply_text(
+            "Этот бот доступен только по приглашению.\n"
+            f"Твой id: {update.effective_user.id}\n"
+            "Передай его владельцу, чтобы он добавил тебя."
         )
-        session.add(tmpl)
-        session.commit()
+        return
 
-        inst = TaskInstance(
-            template_id=tmpl.id,
-            date=get_today(),
-            status="free",
-            priority="normal",
+    state = context.user_data.get("add_state")
+    if not state:
+        # Не в процессе добавления задачи — игнорируем
+        return
+
+    text = update.message.text.strip()
+
+    # Шаг 1: получили название
+    if state == "waiting_title":
+        if not text:
+            await update.message.reply_text("Название не может быть пустым. Пришли название задачи.")
+            return
+
+        context.user_data["add_title"] = text
+        context.user_data["add_state"] = "waiting_points"
+        await update.message.reply_text("Сколько баллов за эту задачу? Пришли число.")
+        return
+
+    # Шаг 2: получили баллы
+    if state == "waiting_points":
+        try:
+            points = int(text)
+        except ValueError:
+            await update.message.reply_text("Баллы должны быть числом. Пришли число, например: 5")
+            return
+
+        context.user_data["add_points"] = points
+        context.user_data["add_state"] = "waiting_period"
+
+        # Показываем кнопки периодичности
+        keyboard = [
+            [
+                InlineKeyboardButton("Единоразово", callback_data="period:once"),
+                InlineKeyboardButton("Ежедневно", callback_data="period:daily"),
+            ],
+            [
+                InlineKeyboardButton("Еженедельно", callback_data="period:weekly"),
+                InlineKeyboardButton("Ежемесячно", callback_data="period:monthly"),
+            ],
+            [
+                InlineKeyboardButton("Ежеквартально", callback_data="period:quarterly"),
+            ],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "Выбери периодичность задачи:",
+            reply_markup=reply_markup,
         )
-        session.add(inst)
-        session.commit()
-        tid = inst.id
+        return
 
-    await update.message.reply_text(
-        f"Добавлена задача #{tid}: {title_part} ({points} баллов)"
-    )
 
 
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -435,10 +459,85 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     data = query.data or ""
     user_tg = query.from_user
 
+    # Обработка выбора периодичности при добавлении задачи
+    if data.startswith("period:"):
+        period_code = data.split(":", 1)[1]  # once / daily / weekly / monthly / quarterly
+
+        title = context.user_data.get("add_title")
+        points = context.user_data.get("add_points")
+        state = context.user_data.get("add_state")
+
+        if state != "waiting_period" or not title or points is None:
+            await query.edit_message_text("Не удалось сохранить задачу. Попробуй ещё раз через /add.")
+            # Сбрасываем состояние, чтобы не висело
+            context.user_data.pop("add_state", None)
+            context.user_data.pop("add_title", None)
+            context.user_data.pop("add_points", None)
+            return
+
+        # Создаём задачу в БД
+        with SessionLocal() as session:
+            tmpl = TaskTemplate(
+                title=title,
+                description=None,
+                periodicity=period_code,  # "once", "daily", "weekly", "monthly", "quarterly"
+                points=points,
+            )
+            session.add(tmpl)
+            session.commit()
+
+            inst = TaskInstance(
+                template_id=tmpl.id,
+                date=get_today(),
+                status="free",
+                priority="normal",
+            )
+            session.add(inst)
+            session.commit()
+
+        # Чистим состояние
+        context.user_data.pop("add_state", None)
+        context.user_data.pop("add_title", None)
+        context.user_data.pop("add_points", None)
+
+        period_human = {
+            "once": "единоразово",
+            "daily": "ежедневно",
+            "weekly": "еженедельно",
+            "monthly": "ежемесячно",
+            "quarterly": "ежеквартально",
+        }.get(period_code, period_code)
+
+        await query.edit_message_text(
+            f"Задача добавлена:\n"
+            f"{title}\n"
+            f"Баллы: {points}\n"
+            f"Периодичность: {period_human}"
+        )
+        return
+
+    # Дальше — твоя существующая логика кнопок задач
     if data == "noop":
         return
 
     action, _, raw_id = data.partition(":")
+    try:
+        instance_id = int(raw_id)
+    except ValueError:
+        await query.edit_message_text("Некорректный id задачи.")
+        return
+
+    with SessionLocal() as session:
+        inst = session.query(TaskInstance).filter_by(id=instance_id).first()
+        if not inst:
+            await query.edit_message_text("Задача не найдена.")
+            return
+
+        tmpl = inst.template
+        user = get_or_create_user(session, user_tg)
+
+        # ... остальной код handler'а (take/drop/done/again) без изменений ...
+
     try:
         instance_id = int(raw_id)
     except ValueError:
@@ -928,6 +1027,10 @@ def main():
     application.add_handler(CommandHandler("my_stats", my_stats))
     application.add_handler(CommandHandler("leaderboard", leaderboard))
     application.add_handler(CommandHandler("allow", allow_user))
+
+    # Обработка шагов добавления задачи (название и баллы)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_task_flow))
+
     application.add_handler(CallbackQueryHandler(task_button_handler))
 
     job_queue = application.job_queue
