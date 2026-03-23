@@ -12,7 +12,6 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 
-
 from aiohttp import web
 
 from db import (
@@ -31,8 +30,15 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 LOCAL_TZ = ZoneInfo("Europe/Moscow")
 MAIN_CHAT_ID = None
 
+# тут укажи свой настоящий Telegram user_id
+OWNER_ID = 680630275
 
-# ---------- Вспомогательные функции работы с БД ----------
+
+# ---------- Вспомогательные функции ----------
+
+def is_owner(update: Update) -> bool:
+    user = update.effective_user
+    return user and user.id == OWNER_ID
 
 
 def get_or_create_user(session, tg_user) -> User:
@@ -80,6 +86,7 @@ def ensure_default_tasks(session):
         session.add(inst)
     session.commit()
 
+
 async def carry_over_tasks(context: ContextTypes.DEFAULT_TYPE):
     """Переносит невыполненные задачи на завтра и помечает их HIGH."""
     today_date = get_today()
@@ -94,7 +101,6 @@ async def carry_over_tasks(context: ContextTypes.DEFAULT_TYPE):
         )
 
         for inst in instances:
-            # Помечаем перенесённую как HIGH
             new_inst = TaskInstance(
                 template_id=inst.template_id,
                 date=tomorrow,
@@ -104,6 +110,7 @@ async def carry_over_tasks(context: ContextTypes.DEFAULT_TYPE):
             session.add(new_inst)
 
         session.commit()
+
 
 def get_period_bounds_for_today():
     """Возвращает границы недели, месяца и года для сегодняшнего дня."""
@@ -128,18 +135,20 @@ def get_period_bounds_for_today():
 
     return (week_start, week_end), (month_start, month_end), (year_start, year_end)
 
+
 # ---------- Хендлеры бота ----------
 
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        await update.message.reply_text("Этот бот доступен только владельцу.")
+        return
+
     global MAIN_CHAT_ID
     MAIN_CHAT_ID = update.effective_chat.id
 
     with SessionLocal() as session:
         user = get_or_create_user(session, update.effective_user)
         ensure_default_tasks(session)
-
-   
 
     await update.message.reply_text(
         "Привет! Это бот для домашних дел.\n\n"
@@ -156,8 +165,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        await update.message.reply_text("Этот бот доступен только владельцу.")
+        return
+
     if not context.args:
         await update.message.reply_text("Формат: /add Название | баллы")
         return
@@ -204,6 +216,10 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        await update.message.reply_text("Этот бот доступен только владельцу.")
+        return
+
     chat_id = update.effective_chat.id
     today_date = get_today()
 
@@ -240,7 +256,6 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Статус: {status_text}{performer}"
             )
 
-            # Кнопки в зависимости от статуса и пользователя
             buttons = []
 
             if inst.status == "free":
@@ -272,7 +287,12 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=reply_markup,
             )
 
+
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        await update.message.reply_text("Этот бот доступен только владельцу.")
+        return
+
     if not context.args:
         await update.message.reply_text("Формат: /done id_задачи")
         return
@@ -282,7 +302,40 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("id должен быть числом")
         return
+
+    with SessionLocal() as session:
+        inst = session.query(TaskInstance).filter_by(id=instance_id).first()
+        if not inst:
+            await update.message.reply_text("Такой задачи нет")
+            return
+
+        tmpl = inst.template
+        user = get_or_create_user(session, update.effective_user)
+
+        inst.status = "done"
+        inst.done_by_user_id = user.id
+        inst.done_at = get_today()
+        if inst.assigned_user_id is None:
+            inst.assigned_user_id = user.id
+
+        comp = Completion(
+            user_id=user.id,
+            task_instance_id=inst.id,
+            points=tmpl.points,
+        )
+        session.add(comp)
+        session.commit()
+
+    await update.message.reply_text(
+        f"Задача #{inst.id} выполнена! +{tmpl.points} баллов"
+    )
+
+
 async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        await update.message.reply_text("Этот бот доступен только владельцу.")
+        return
+
     """Показать задачи на сегодня с кнопками для повторного выполнения."""
     chat_id = update.effective_chat.id
     today_date = get_today()
@@ -320,7 +373,6 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Статус: {status_text}{performer}"
             )
 
-            # Кнопка для добавления ещё одного выполнения
             buttons = [
                 [
                     InlineKeyboardButton(
@@ -336,35 +388,12 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=reply_markup,
             )
 
-    with SessionLocal() as session:
-        inst = session.query(TaskInstance).filter_by(id=instance_id).first()
-        if not inst:
-            await update.message.reply_text("Такой задачи нет")
-            return
-
-        tmpl = inst.template
-        user = get_or_create_user(session, update.effective_user)
-
-        inst.status = "done"
-        inst.done_by_user_id = user.id
-        inst.done_at = get_today()
-        if inst.assigned_user_id is None:
-            inst.assigned_user_id = user.id
-
-        comp = Completion(
-            user_id=user.id,
-            task_instance_id=inst.id,
-            points=tmpl.points,
-        )
-        session.add(comp)
-        session.commit()
-
-        await update.message.reply_text(
-            f"Задача #{inst.id} выполнена! +{tmpl.points} баллов"
-        )
-
 
 async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        await update.callback_query.answer("Этот бот доступен только владельцу.", show_alert=True)
+        return
+
     query = update.callback_query
     await query.answer()
 
@@ -451,9 +480,9 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"Статус: выполнена {user.full_name or user.username}"
             )
             return
-                # Повторное выполнение (ещё раз)
+
+        # Повторное выполнение (ещё раз)
         if action == "again":
-            # базовый экземпляр
             today_date = get_today()
             new_inst = TaskInstance(
                 template_id=tmpl.id,
@@ -482,10 +511,14 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
-        # Если действие неизвестно
         await query.edit_message_text("Неизвестное действие.")
 
+
 async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        await update.message.reply_text("Этот бот доступен только владельцу.")
+        return
+
     with SessionLocal() as session:
         rows = (
             session.query(User, Completion)
@@ -508,12 +541,16 @@ async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("Рейтинг (всё время):\n" + "\n".join(lines))
 
+
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        await update.message.reply_text("Этот бот доступен только владельцу.")
+        return
+
     """Общая статистика по дому: неделя, месяц, год, всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
 
     with SessionLocal() as session:
-        # забираем все начисления
         rows = (
             session.query(User, Completion)
             .join(Completion, Completion.user_id == User.id)
@@ -533,18 +570,14 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             day = comp.created_at.date()
             uid = user.id
 
-            # всё время
             totals_all[uid] = totals_all.get(uid, 0) + comp.points
 
-            # неделя
             if week_start <= day <= week_end:
                 totals_week[uid] = totals_week.get(uid, 0) + comp.points
 
-            # месяц
             if month_start <= day <= month_end:
                 totals_month[uid] = totals_month.get(uid, 0) + comp.points
 
-            # год
             if year_start <= day <= year_end:
                 totals_year[uid] = totals_year.get(uid, 0) + comp.points
 
@@ -569,7 +602,12 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text)
 
+
 async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        await update.message.reply_text("Этот бот доступен только владельцу.")
+        return
+
     """Личная статистика пользователя: неделя, месяц, год, всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
     tg_user = update.effective_user
@@ -610,7 +648,12 @@ async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Всё время: {total_all}"
     )
 
+
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        await update.message.reply_text("Этот бот доступен только владельцу.")
+        return
+
     """Лидеры за неделю, месяц, год и всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
 
@@ -665,9 +708,9 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text)
 
+
 async def send_daily_digest(context: ContextTypes.DEFAULT_TYPE):
     """Ежедневный дайджест задач на сегодня в главный чат."""
-    # пока считаем, что бот работает в одном чате: берём chat_id из data
     chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
     if chat_id is None:
         return
@@ -712,6 +755,8 @@ async def send_daily_digest(context: ContextTypes.DEFAULT_TYPE):
             chat_id=chat_id,
             text="Ежедневный дайджест задач:\n" + "\n".join(lines),
         )
+
+
 async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
     """Итоги дня, а заодно недели/месяца/года, если сегодня конец периода."""
     chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
@@ -732,7 +777,6 @@ async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text="Сегодня никто не заработал баллы.")
             return
 
-        # Баллы за сегодня
         totals_today = {}
         for user, comp in rows:
             if comp.created_at.date() == today:
@@ -755,7 +799,6 @@ async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
 
         parts = []
 
-        # День
         if totals_today:
             day_lines = []
             for uid, pts in sorted(totals_today.items(), key=lambda x: x[1], reverse=True)[:3]:
@@ -766,22 +809,19 @@ async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
         else:
             parts.append("Итоги дня: никто не заработал баллы.")
 
-        # Конец недели
         if today == week_end:
             parts.append(block_for_period("Итоги недели", week_start, week_end))
 
-        # Конец месяца
         if today == month_end:
             parts.append(block_for_period("Итоги месяца", month_start, month_end))
 
-        # Конец года
         if today == year_end:
             parts.append(block_for_period("Итоги года", year_start, year_end))
 
     await context.bot.send_message(chat_id=chat_id, text="\n\n".join(parts))
 
-# -------- Минимальный HTTP-сервер для Render --------
 
+# -------- Минимальный HTTP-сервер для Render --------
 
 async def health(request):
     return web.Response(text="OK")
@@ -799,7 +839,6 @@ async def run_http_server():
 
 
 # -------- Запуск бота + HTTP-сервер --------
-
 
 def main():
     init_db()
@@ -819,7 +858,6 @@ def main():
 
     job_queue = application.job_queue
 
-    # Ежедневный дайджест в 9:00 по Москве
     job_queue.run_daily(
         send_daily_digest,
         time=time(hour=9, minute=0, tzinfo=LOCAL_TZ),
@@ -827,7 +865,6 @@ def main():
         name="daily_digest",
     )
 
-    # Ежедневные итоги в 23:59 по Москве
     job_queue.run_daily(
         send_daily_summary,
         time=time(hour=23, minute=59, tzinfo=LOCAL_TZ),
