@@ -141,10 +141,10 @@ def get_period_bounds_for_today():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
-    await update.message.reply_text(
-        "Этот бот доступен только по приглашению.\n"
-        f"Твой id: {update.effective_user.id}\n"
-        "Передай его владельцу, чтобы он добавил тебя."
+        await update.message.reply_text(
+            "Этот бот доступен только по приглашению.\n"
+            f"Твой id: {update.effective_user.id}\n"
+            "Передай его владельцу, чтобы он добавил тебя."
     )
     return
 
@@ -173,10 +173,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
-    await update.message.reply_text(
-        "Этот бот доступен только по приглашению.\n"
-        f"Твой id: {update.effective_user.id}\n"
-        "Передай его владельцу, чтобы он добавил тебя."
+        await update.message.reply_text(
+            "Этот бот доступен только по приглашению.\n"
+            f"Твой id: {update.effective_user.id}\n"
+            "Передай его владельцу, чтобы он добавил тебя."
     )
     return
 
@@ -227,10 +227,10 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
-    await update.message.reply_text(
-        "Этот бот доступен только по приглашению.\n"
-        f"Твой id: {update.effective_user.id}\n"
-        "Передай его владельцу, чтобы он добавил тебя."
+        await update.message.reply_text(
+            "Этот бот доступен только по приглашению.\n"
+            f"Твой id: {update.effective_user.id}\n"
+            "Передай его владельцу, чтобы он добавил тебя."
     )
     return
 
@@ -304,10 +304,10 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
-    await update.message.reply_text(
-        "Этот бот доступен только по приглашению.\n"
-        f"Твой id: {update.effective_user.id}\n"
-        "Передай его владельцу, чтобы он добавил тебя."
+        await update.message.reply_text(
+            "Этот бот доступен только по приглашению.\n"
+            f"Твой id: {update.effective_user.id}\n"
+            "Передай его владельцу, чтобы он добавил тебя."
     )
     return
 
@@ -351,10 +351,10 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
-    await update.message.reply_text(
-        "Этот бот доступен только по приглашению.\n"
-        f"Твой id: {update.effective_user.id}\n"
-        "Передай его владельцу, чтобы он добавил тебя."
+        await update.message.reply_text(
+            "Этот бот доступен только по приглашению.\n"
+            f"Твой id: {update.effective_user.id}\n"
+            "Передай его владельцу, чтобы он добавил тебя."
     )
     return
 
@@ -415,9 +415,9 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not is_allowed(update):
         user = update.effective_user
         uid = user.id if user else "unknown"
-        await update.callback_query.answer(
-            f"У тебя пока нет доступа.\nТвой id: {uid}",
-            show_alert=True,
+            await update.callback_query.answer(
+                f"У тебя пока нет доступа.\nТвой id: {uid}",
+                show_alert=True,
         )
         return
 
@@ -543,10 +543,10 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
-    await update.message.reply_text(
-        "Этот бот доступен только по приглашению.\n"
-        f"Твой id: {update.effective_user.id}\n"
-        "Передай его владельцу, чтобы он добавил тебя."
+        await update.message.reply_text(
+            "Этот бот доступен только по приглашению.\n"
+            f"Твой id: {update.effective_user.id}\n"
+            "Передай его владельцу, чтобы он добавил тебя."
     )
     return
 
@@ -598,10 +598,10 @@ async def allow_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
-    await update.message.reply_text(
-        "Этот бот доступен только по приглашению.\n"
-        f"Твой id: {update.effective_user.id}\n"
-        "Передай его владельцу, чтобы он добавил тебя."
+        await update.message.reply_text(
+            "Этот бот доступен только по приглашению.\n"
+            f"Твой id: {update.effective_user.id}\n"
+            "Передай его владельцу, чтобы он добавил тебя."
     )
     return
 
@@ -663,10 +663,10 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
-    await update.message.reply_text(
-        "Этот бот доступен только по приглашению.\n"
-        f"Твой id: {update.effective_user.id}\n"
-        "Передай его владельцу, чтобы он добавил тебя."
+        await update.message.reply_text(
+            "Этот бот доступен только по приглашению.\n"
+            f"Твой id: {update.effective_user.id}\n"
+            "Передай его владельцу, чтобы он добавил тебя."
     )
     return
 
@@ -713,10 +713,10 @@ async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
-    await update.message.reply_text(
-        "Этот бот доступен только по приглашению.\n"
-        f"Твой id: {update.effective_user.id}\n"
-        "Передай его владельцу, чтобы он добавил тебя."
+        await update.message.reply_text(
+            "Этот бот доступен только по приглашению.\n"
+            f"Твой id: {update.effective_user.id}\n"
+            "Передай его владельцу, чтобы он добавил тебя."
     )
     return
 
