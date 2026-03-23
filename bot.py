@@ -136,7 +136,15 @@ def get_period_bounds_for_today():
     return (week_start, week_end), (month_start, month_end), (year_start, year_end)
 
 
+async def test_job(context: ContextTypes.DEFAULT_TYPE):
+    chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
+    if chat_id is None:
+        return
+    await context.bot.send_message(chat_id=chat_id, text="Тестовый джоб сработал ✅")
+
+
 # ---------- Хендлеры бота ----------
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(update):
@@ -162,6 +170,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/my_stats — личная статистика\n"
         "/leaderboard — лидеры\n\n"
         "Пока бот работает в одной группе/чате как один 'дом'."
+    )
+
+    # Тестовый джоб: один раз через минуту после /start
+    from datetime import datetime, timedelta
+    run_at = datetime.now(LOCAL_TZ) + timedelta(minutes=1)
+    context.job_queue.run_once(
+        test_job,
+        when=run_at,
+        data={"chat_id": update.effective_chat.id},
+        name="test_job",
     )
 
 
@@ -841,7 +859,10 @@ async def run_http_server():
 # -------- Тестовый джоб для проверки времени --------
 
 async def test_job(context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=MAIN_CHAT_ID, text="Тестовый джоб сработал ✅")
+    chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
+    if chat_id is None:
+        return
+    await context.bot.send_message(chat_id=chat_id, text="Тестовый джоб сработал ✅")
 
 
 # -------- Запуск бота + HTTP-сервер --------
@@ -864,15 +885,7 @@ def main():
 
     job_queue = application.job_queue
 
-    # Тестовый джоб: один раз через минуту после старта
-    from datetime import datetime, timedelta
-    run_at = datetime.now(LOCAL_TZ) + timedelta(minutes=1)
-    job_queue.run_once(
-        test_job,
-        when=run_at,
-        data={"chat_id": MAIN_CHAT_ID},
-        name="test_job",
-    )
+    
 
     # Ежедневный дайджест в 9:00 по Москве
     job_queue.run_daily(
