@@ -35,6 +35,25 @@ MAIN_CHAT_ID = None
 OWNER_ID = 680630275
 ALLOWED_USER_IDS = {OWNER_ID}
 
+MAIN_KEYBOARD = ReplyKeyboardMarkup(
+    [[KeyboardButton("/today"), KeyboardButton("/mytasks")]],
+    resize_keyboard=True,
+)
+
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+)
+...
+
+MAIN_KEYBOARD = ReplyKeyboardMarkup(
+    [[KeyboardButton("/today"), KeyboardButton("/mytasks")]],
+    resize_keyboard=True,
+)
+
 
 # ---------- Вспомогательные функции ----------
 
@@ -251,6 +270,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Если ты видишь сообщение про приглашение — отправь свой id владельцу дома."
     )
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ...
+    await update.message.reply_text(
+        "Привет! Это бот для домашних дел.\n\n"
+        "Как пользоваться:\n"
+        "• /today — дела на сегодня\n"
+        "• /add — добавить новую задачу (пошагово)\n"
+        "• /again — отметить, что задача сделана ещё раз\n"
+        "• /mytasks — мои активные задачи\n"
+        "• /my_stats — моя статистика\n"
+        "• /leaderboard — лидеры по баллам\n\n"
+        "Если ты видишь сообщение про приглашение — отправь свой id владельцу дома.",
+        reply_markup=MAIN_KEYBOARD,
+    )
 
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
