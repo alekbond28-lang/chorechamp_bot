@@ -422,13 +422,7 @@ def main():
     application.add_handler(CommandHandler("score", score))
     application.add_handler(CallbackQueryHandler(task_button_handler))
 
-    # Ежедневный перенос задач (время в UTC)
-    job_queue = application.job_queue
-    job_queue.run_daily(
-        carry_over_tasks,
-        time=time(hour=20, minute=55),
-        name="carry_over_tasks",
-    )  # [web:310]
+      # [web:310]
 
     loop = asyncio.get_event_loop()
     loop.create_task(run_http_server())
