@@ -54,7 +54,6 @@ from telegram import (
     ReplyKeyboardMarkup,
     KeyboardButton,
 )
-...
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [[KeyboardButton("/today"), KeyboardButton("/mytasks")]],
@@ -349,18 +348,15 @@ async def add_task_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Показываем кнопки периодичности
         keyboard = [
-            [
-                InlineKeyboardButton("Единоразово", callback_data="period:once"),
-                InlineKeyboardButton("Ежедневно", callback_data="period:daily"),
-            ],
-            [
-                InlineKeyboardButton("Еженедельно", callback_data="period:weekly"),
-                InlineKeyboardButton("Ежемесячно", callback_data="period:monthly"),
-            ],
-            [
-                InlineKeyboardButton("Ежеквартально", callback_data="period:quarterly"),
-            ],
+    [InlineKeyboardButton("Один раз", callback_data="period:once")],
+    [InlineKeyboardButton("Каждый день", callback_data="period:daily")],
+    [InlineKeyboardButton("Раз в неделю", callback_data="period:weekly")],
+    [InlineKeyboardButton("Два раза в неделю", callback_data="period:twice_weekly")],
+    [InlineKeyboardButton("Раз в месяц", callback_data="period:monthly")],
+    [InlineKeyboardButton("Два раза в месяц", callback_data="period:twice_monthly")],
+    [InlineKeyboardButton("Раз в квартал", callback_data="period:quarterly")],
         ]
+
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "Выбери периодичность задачи:",
@@ -687,12 +683,15 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.pop("add_points", None)
 
         period_human = {
-            "once": "единоразово",
-            "daily": "ежедневно",
-            "weekly": "еженедельно",
-            "monthly": "ежемесячно",
-            "quarterly": "ежеквартально",
+            "once": "один раз",
+            "daily": "каждый день",
+            "weekly": "раз в неделю",
+            "twice_weekly": "два раза в неделю",
+            "monthly": "раз в месяц",
+            "twice_monthly": "два раза в месяц",
+            "quarterly": "раз в квартал",
         }.get(period_code, period_code)
+
 
         await query.edit_message_text(
             f"Задача добавлена:\n"
