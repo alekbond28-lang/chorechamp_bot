@@ -1,4 +1,5 @@
 import os
+import asyncio
 from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
@@ -9,7 +10,9 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# Загружаем токен из окружения (.env локально, переменные окружения на Render)
+from aiohttp import web
+
+# Загружаем токен из окружения (.env локально, Environment на Render)
 load_dotenv()
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
@@ -128,16 +131,39 @@ async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Рейтинг:\n" + "\n".join(lines))
 
 
+# -------- Минимальный HTTP-сервер для Render --------
+
+async def health(request):
+    return web.Response(text="OK")
+
+
+async def run_http_server():
+    app = web.Application()
+    app.router.add_get("/", health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    port = int(os.environ.get("PORT", 10000))  # Render может сам задавать PORT
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+
+# -------- Запуск бота + HTTP-сервер --------
+
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("add", add_task))
-    app.add_handler(CommandHandler("today", today))
-    app.add_handler(CommandHandler("done", done))
-    app.add_handler(CommandHandler("score", score))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("add", add_task))
+    application.add_handler(CommandHandler("today", today))
+    application.add_handler(CommandHandler("done", done))
+    application.add_handler(CommandHandler("score", score))
 
-    app.run_polling()
+    loop = asyncio.get_event_loop()
+    # поднимаем HTTP-сервер, чтобы Render видел открытый порт
+    loop.create_task(run_http_server())
+    # запускаем бота (polling)
+    application.run_polling()
 
 
 if __name__ == "__main__":
