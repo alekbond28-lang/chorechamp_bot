@@ -415,9 +415,9 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not is_allowed(update):
         user = update.effective_user
         uid = user.id if user else "unknown"
-            await update.callback_query.answer(
-                f"У тебя пока нет доступа.\nТвой id: {uid}",
-                show_alert=True,
+        await update.callback_query.answer(
+            f"У тебя пока нет доступа.\nТвой id: {uid}",
+            show_alert=True,
         )
         return
 
