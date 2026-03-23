@@ -867,6 +867,13 @@ def main():
 
     job_queue = application.job_queue
 
+    # Перенос невыполненных задач в 23:50 по Москве
+    job_queue.run_daily(
+        carry_over_tasks,
+        time=time(hour=23, minute=50, tzinfo=LOCAL_TZ),
+        name="carry_over_tasks",
+    )
+
     # Ежедневный дайджест в 9:00 по Москве
     job_queue.run_daily(
         send_daily_digest,
@@ -886,6 +893,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(run_http_server())
     application.run_polling()
+
 
 
 if __name__ == "__main__":
