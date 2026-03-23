@@ -32,6 +32,7 @@ MAIN_CHAT_ID = None
 
 # тут укажи свой настоящий Telegram user_id
 OWNER_ID = 680630275
+ALLOWED_USER_IDS = {OWNER_ID}
 
 
 # ---------- Вспомогательные функции ----------
@@ -41,17 +42,14 @@ def is_owner(update: Update) -> bool:
     return user and user.id == OWNER_ID
 
 
-def get_or_create_user(session, tg_user) -> User:
-    user = session.query(User).filter_by(telegram_id=tg_user.id).first()
+def is_allowed(update: Update) -> bool:
+    user = update.effective_user
     if not user:
-        user = User(
-            telegram_id=tg_user.id,
-            username=tg_user.username,
-            full_name=tg_user.full_name,
-        )
-        session.add(user)
-        session.commit()
-    return user
+        return False
+    if user.id == OWNER_ID:
+        return True
+    return user.id in ALLOWED_USER_IDS
+
 
 
 def ensure_default_tasks(session):
@@ -142,9 +140,14 @@ def get_period_bounds_for_today():
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update):
-        await update.message.reply_text("Этот бот доступен только владельцу.")
-        return
+    if not is_allowed(update):
+    await update.message.reply_text(
+        "Этот бот доступен только по приглашению.\n"
+        f"Твой id: {update.effective_user.id}\n"
+        "Передай его владельцу, чтобы он добавил тебя."
+    )
+    return
+
 
     global MAIN_CHAT_ID
     MAIN_CHAT_ID = update.effective_chat.id
@@ -170,9 +173,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update):
-        await update.message.reply_text("Этот бот доступен только владельцу.")
-        return
+    if not is_allowed(update):
+    await update.message.reply_text(
+        "Этот бот доступен только по приглашению.\n"
+        f"Твой id: {update.effective_user.id}\n"
+        "Передай его владельцу, чтобы он добавил тебя."
+    )
+    return
+
 
     if not context.args:
         await update.message.reply_text("Формат: /add Название | баллы")
@@ -220,9 +228,14 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update):
-        await update.message.reply_text("Этот бот доступен только владельцу.")
-        return
+    if not is_allowed(update):
+    await update.message.reply_text(
+        "Этот бот доступен только по приглашению.\n"
+        f"Твой id: {update.effective_user.id}\n"
+        "Передай его владельцу, чтобы он добавил тебя."
+    )
+    return
+
 
     chat_id = update.effective_chat.id
     today_date = get_today()
@@ -293,9 +306,14 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update):
-        await update.message.reply_text("Этот бот доступен только владельцу.")
-        return
+    if not is_allowed(update):
+    await update.message.reply_text(
+        "Этот бот доступен только по приглашению.\n"
+        f"Твой id: {update.effective_user.id}\n"
+        "Передай его владельцу, чтобы он добавил тебя."
+    )
+    return
+
 
     if not context.args:
         await update.message.reply_text("Формат: /done id_задачи")
@@ -336,9 +354,14 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update):
-        await update.message.reply_text("Этот бот доступен только владельцу.")
-        return
+    if not is_allowed(update):
+    await update.message.reply_text(
+        "Этот бот доступен только по приглашению.\n"
+        f"Твой id: {update.effective_user.id}\n"
+        "Передай его владельцу, чтобы он добавил тебя."
+    )
+    return
+
 
     """Показать задачи на сегодня с кнопками для повторного выполнения."""
     chat_id = update.effective_chat.id
@@ -394,9 +417,15 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update):
-        await update.callback_query.answer("Этот бот доступен только владельцу.", show_alert=True)
+    if not is_allowed(update):
+        user = update.effective_user
+        uid = user.id if user else "unknown"
+        await update.callback_query.answer(
+            f"У тебя пока нет доступа.\nТвой id: {uid}",
+            show_alert=True,
+        )
         return
+
 
     query = update.callback_query
     await query.answer()
@@ -519,9 +548,14 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update):
-        await update.message.reply_text("Этот бот доступен только владельцу.")
-        return
+    if not is_allowed(update):
+    await update.message.reply_text(
+        "Этот бот доступен только по приглашению.\n"
+        f"Твой id: {update.effective_user.id}\n"
+        "Передай его владельцу, чтобы он добавил тебя."
+    )
+    return
+
 
     with SessionLocal() as session:
         rows = (
@@ -545,11 +579,39 @@ async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("Рейтинг (всё время):\n" + "\n".join(lines))
 
+async def allow_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Только владелец может добавлять участников
+    if not is_owner(update):
+        await update.message.reply_text("Эта команда доступна только владельцу.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Формат: /allow <telegram_id>")
+        return
+
+    try:
+        new_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("id должен быть числом")
+        return
+
+    if new_id in ALLOWED_USER_IDS:
+        await update.message.reply_text(f"Пользователь {new_id} уже в доме.")
+        return
+
+    ALLOWED_USER_IDS.add(new_id)
+    await update.message.reply_text(f"Пользователь {new_id} добавлен в дом ✅")
+
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update):
-        await update.message.reply_text("Этот бот доступен только владельцу.")
-        return
+    if not is_allowed(update):
+    await update.message.reply_text(
+        "Этот бот доступен только по приглашению.\n"
+        f"Твой id: {update.effective_user.id}\n"
+        "Передай его владельцу, чтобы он добавил тебя."
+    )
+    return
+
 
     """Общая статистика по дому: неделя, месяц, год, всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
@@ -608,9 +670,14 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update):
-        await update.message.reply_text("Этот бот доступен только владельцу.")
-        return
+    if not is_allowed(update):
+    await update.message.reply_text(
+        "Этот бот доступен только по приглашению.\n"
+        f"Твой id: {update.effective_user.id}\n"
+        "Передай его владельцу, чтобы он добавил тебя."
+    )
+    return
+
 
     """Личная статистика пользователя: неделя, месяц, год, всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
@@ -654,9 +721,14 @@ async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update):
-        await update.message.reply_text("Этот бот доступен только владельцу.")
-        return
+    if not is_allowed(update):
+    await update.message.reply_text(
+        "Этот бот доступен только по приглашению.\n"
+        f"Твой id: {update.effective_user.id}\n"
+        "Передай его владельцу, чтобы он добавил тебя."
+    )
+    return
+
 
     """Лидеры за неделю, месяц, год и всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
@@ -858,6 +930,7 @@ def main():
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("my_stats", my_stats))
     application.add_handler(CommandHandler("leaderboard", leaderboard))
+    application.add_handler(CommandHandler("allow", allow_user))
     application.add_handler(CallbackQueryHandler(task_button_handler))
 
     job_queue = application.job_queue
