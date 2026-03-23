@@ -1,6 +1,6 @@
 import os
 import asyncio
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from dotenv import load_dotenv
 from telegram import Update
@@ -12,37 +12,90 @@ from telegram.ext import (
 
 from aiohttp import web
 
-# Загружаем токен из окружения (.env локально, Environment на Render)
+from db import (
+    SessionLocal,
+    init_db,
+    User,
+    TaskTemplate,
+    TaskInstance,
+    Completion,
+    get_today,
+)
+
+# Загружаем токен
 load_dotenv()
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-# Простое хранилище в памяти
-tasks = {}         # id -> {title, points, next_due}
-completions = {}   # user_id -> total_points
-task_counter = 1
+
+# ---------- Вспомогательные функции работы с БД ----------
 
 
-def get_today():
-    return datetime.now().date()
+def get_or_create_user(session, tg_user) -> User:
+    user = session.query(User).filter_by(telegram_id=tg_user.id).first()
+    if not user:
+        user = User(
+            telegram_id=tg_user.id,
+            username=tg_user.username,
+            full_name=tg_user.full_name,
+        )
+        session.add(user)
+        session.commit()
+    return user
+
+
+def ensure_default_tasks(session):
+    """Создаём несколько дефолтных задач, если их ещё нет."""
+    if session.query(TaskTemplate).count() > 0:
+        return
+
+    defaults = [
+        ("Мыть посуду", "Посуда после еды", "daily", 5),
+        ("Пылесосить", "Пропылесосить квартиру", "weekly", 10),
+        ("Выносить мусор", "Выбросить мусор", "daily", 3),
+    ]
+    for title, desc, period, pts in defaults:
+        t = TaskTemplate(
+            title=title,
+            description=desc,
+            periodicity=period,
+            points=pts,
+        )
+        session.add(t)
+    session.commit()
+
+    today = get_today()
+    templates = session.query(TaskTemplate).all()
+    for tmpl in templates:
+        inst = TaskInstance(
+            template_id=tmpl.id,
+            date=today,
+            status="free",
+            priority="normal",
+        )
+        session.add(inst)
+    session.commit()
+
+
+# ---------- Хендлеры бота ----------
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    completions.setdefault(user.id, 0)
+    with SessionLocal() as session:
+        user = get_or_create_user(session, update.effective_user)
+        ensure_default_tasks(session)
+
     await update.message.reply_text(
         "Привет! Это бот для домашних дел.\n\n"
-        "Команды:\n"
-        "/add название | баллы — добавить ежедневную задачу\n"
+        "Основные команды:\n"
+        "/add название | баллы — добавить задачу\n"
         "/today — дела на сегодня\n"
         "/done id — отметить выполненным\n"
-        "/score — рейтинг по баллам\n\n"
-        "Пример:\n"
-        "/add Мыть посуду | 5"
+        "/score — рейтинг по баллам (упрощённая версия)\n\n"
+        "Пока бот работает в одной группе/чате как один 'дом'."
     )
 
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global task_counter
     if not context.args:
         await update.message.reply_text("Формат: /add Название | баллы")
         return
@@ -63,75 +116,130 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Баллы должны быть числом")
         return
 
-    tasks[task_counter] = {
-        "title": title_part,
-        "points": points,
-        "next_due": get_today(),
-    }
+    with SessionLocal() as session:
+        tmpl = TaskTemplate(
+            title=title_part,
+            description=None,
+            periodicity="daily",  # пока всегда ежедневно
+            points=points,
+        )
+        session.add(tmpl)
+        session.commit()
+
+        inst = TaskInstance(
+            template_id=tmpl.id,
+            date=get_today(),
+            status="free",
+            priority="normal",
+        )
+        session.add(inst)
+        session.commit()
+        tid = inst.id
 
     await update.message.reply_text(
-        f"Добавлена задача #{task_counter}: {title_part} ({points} баллов)"
+        f"Добавлена задача #{tid}: {title_part} ({points} баллов)"
     )
-    task_counter += 1
 
 
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today_date = get_today()
-    lines = []
-    for tid, t in tasks.items():
-        if t["next_due"] <= today_date:
-            lines.append(f"{tid}. {t['title']} ({t['points']} баллов)")
-    if not lines:
-        await update.message.reply_text("На сегодня дел нет! 🎉")
-    else:
-        await update.message.reply_text("Дела на сегодня:\n" + "\n".join(lines))
+    with SessionLocal() as session:
+        instances = (
+            session.query(TaskInstance)
+            .join(TaskTemplate)
+            .filter(TaskInstance.date == today_date)
+            .all()
+        )
+
+        if not instances:
+            await update.message.reply_text("На сегодня дел нет! 🎉")
+            return
+
+        lines = []
+        for inst in instances:
+            tmpl = inst.template
+            prefix = "[HIGH] " if inst.priority == "high" else ""
+            status_text = {
+                "free": "свободна",
+                "in_progress": "в работе",
+                "done": "выполнена",
+            }.get(inst.status, inst.status)
+
+            performer = ""
+            if inst.status in ("in_progress", "done") and inst.assigned_user:
+                performer = f" у {inst.assigned_user.full_name or inst.assigned_user.username}"
+
+            line = f"{inst.id}. {prefix}{tmpl.title} — {tmpl.points} баллов — {status_text}{performer}"
+            lines.append(line)
+
+    await update.message.reply_text("Дела на сегодня:\n" + "\n".join(lines))
 
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
     if not context.args:
         await update.message.reply_text("Формат: /done id_задачи")
         return
 
     try:
-        tid = int(context.args[0])
+        instance_id = int(context.args[0])
     except ValueError:
         await update.message.reply_text("id должен быть числом")
         return
 
-    if tid not in tasks:
-        await update.message.reply_text("Такой задачи нет")
-        return
+    with SessionLocal() as session:
+        inst = session.query(TaskInstance).filter_by(id=instance_id).first()
+        if not inst:
+            await update.message.reply_text("Такой задачи нет")
+            return
 
-    task = tasks[tid]
-    completions[user.id] = completions.get(user.id, 0) + task["points"]
-    task["next_due"] = get_today() + timedelta(days=1)
+        tmpl = inst.template
+        user = get_or_create_user(session, update.effective_user)
 
-    await update.message.reply_text(
-        f"Задача #{tid} выполнена! +{task['points']} баллов\n"
-        f"Твой счёт: {completions[user.id]}"
-    )
+        inst.status = "done"
+        inst.done_by_user_id = user.id
+        inst.done_at = get_today()
+        if inst.assigned_user_id is None:
+            inst.assigned_user_id = user.id
+
+        comp = Completion(
+            user_id=user.id,
+            task_instance_id=inst.id,
+            points=tmpl.points,
+        )
+        session.add(comp)
+        session.commit()
+
+        await update.message.reply_text(
+            f"Задача #{inst.id} выполнена! +{tmpl.points} баллов"
+        )
 
 
 async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not completions:
-        await update.message.reply_text("Пока никто не заработал баллы")
-        return
+    with SessionLocal() as session:
+        rows = (
+            session.query(User, Completion)
+            .join(Completion, Completion.user_id == User.id)
+            .all()
+        )
+        if not rows:
+            await update.message.reply_text("Пока никто не заработал баллы")
+            return
 
-    items = sorted(completions.items(), key=lambda x: x[1], reverse=True)
-    lines = []
-    for user_id, pts in items:
-        try:
-            member = await update.effective_chat.get_member(user_id)
-            name = member.user.full_name
-        except Exception:
-            name = str(user_id)
-        lines.append(f"{name}: {pts} баллов")
+        totals = {}
+        for user, comp in rows:
+            totals[user.id] = totals.get(user.id, 0) + comp.points
 
-    await update.message.reply_text("Рейтинг:\n" + "\n".join(lines))
+        lines = []
+        for user_id, pts in sorted(totals.items(), key=lambda x: x[1], reverse=True):
+            user = session.query(User).get(user_id)
+            name = user.full_name or user.username or str(user.telegram_id)
+            lines.append(f"{name}: {pts} баллов")
+
+    await update.message.reply_text("Рейтинг (всё время):\n" + "\n".join(lines))
 
 
 # -------- Минимальный HTTP-сервер для Render --------
+
 
 async def health(request):
     return web.Response(text="OK")
@@ -143,14 +251,17 @@ async def run_http_server():
     runner = web.AppRunner(app)
     await runner.setup()
 
-    port = int(os.environ.get("PORT", 10000))  # Render может сам задавать PORT
+    port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
 
 # -------- Запуск бота + HTTP-сервер --------
 
+
 def main():
+    init_db()
+
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
@@ -160,9 +271,7 @@ def main():
     application.add_handler(CommandHandler("score", score))
 
     loop = asyncio.get_event_loop()
-    # поднимаем HTTP-сервер, чтобы Render видел открытый порт
     loop.create_task(run_http_server())
-    # запускаем бота (polling)
     application.run_polling()
 
 
