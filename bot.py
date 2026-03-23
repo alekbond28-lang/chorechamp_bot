@@ -838,6 +838,12 @@ async def run_http_server():
     await site.start()
 
 
+# -------- Тестовый джоб для проверки времени --------
+
+async def test_job(context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=MAIN_CHAT_ID, text="Тестовый джоб сработал ✅")
+
+
 # -------- Запуск бота + HTTP-сервер --------
 
 def main():
@@ -858,6 +864,17 @@ def main():
 
     job_queue = application.job_queue
 
+    # Тестовый джоб: один раз через минуту после старта
+    from datetime import datetime, timedelta
+    run_at = datetime.now(LOCAL_TZ) + timedelta(minutes=1)
+    job_queue.run_once(
+        test_job,
+        when=run_at,
+        data={"chat_id": MAIN_CHAT_ID},
+        name="test_job",
+    )
+
+    # Ежедневный дайджест в 9:00 по Москве
     job_queue.run_daily(
         send_daily_digest,
         time=time(hour=9, minute=0, tzinfo=LOCAL_TZ),
@@ -865,6 +882,7 @@ def main():
         name="daily_digest",
     )
 
+    # Ежедневные итоги в 23:59 по Москве
     job_queue.run_daily(
         send_daily_summary,
         time=time(hour=23, minute=59, tzinfo=LOCAL_TZ),
