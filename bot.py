@@ -3,12 +3,14 @@ import asyncio
 from datetime import timedelta
 
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     ContextTypes,
+    CallbackQueryHandler,
 )
+
 
 from aiohttp import web
 
@@ -142,7 +144,9 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
     today_date = get_today()
+
     with SessionLocal() as session:
         instances = (
             session.query(TaskInstance)
@@ -155,7 +159,6 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("На сегодня дел нет! 🎉")
             return
 
-        lines = []
         for inst in instances:
             tmpl = inst.template
             prefix = "[HIGH] " if inst.priority == "high" else ""
@@ -167,13 +170,47 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             performer = ""
             if inst.status in ("in_progress", "done") and inst.assigned_user:
-                performer = f" у {inst.assigned_user.full_name or inst.assigned_user.username}"
+                performer = (
+                    f" у {inst.assigned_user.full_name or inst.assigned_user.username}"
+                )
 
-            line = f"{inst.id}. {prefix}{tmpl.title} — {tmpl.points} баллов — {status_text}{performer}"
-            lines.append(line)
+            text = (
+                f"{prefix}{tmpl.title}\n"
+                f"Баллы: {tmpl.points}\n"
+                f"Статус: {status_text}{performer}"
+            )
 
-    await update.message.reply_text("Дела на сегодня:\n" + "\n".join(lines))
+            # Кнопки в зависимости от статуса и пользователя
+            buttons = []
 
+            if inst.status == "free":
+                buttons.append(
+                    [InlineKeyboardButton("Взять в работу", callback_data=f"take:{inst.id}")]
+                )
+            elif inst.status == "in_progress":
+                if inst.assigned_user and inst.assigned_user.telegram_id == update.effective_user.id:
+                    buttons.append(
+                        [
+                            InlineKeyboardButton("Выполнено", callback_data=f"done:{inst.id}"),
+                            InlineKeyboardButton("Отказаться", callback_data=f"drop:{inst.id}"),
+                        ]
+                    )
+                else:
+                    buttons.append(
+                        [InlineKeyboardButton("Занято", callback_data="noop")]
+                    )
+            elif inst.status == "done":
+                buttons.append(
+                    [InlineKeyboardButton("Выполнено ✅", callback_data="noop")]
+                )
+
+            reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
+
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -213,6 +250,96 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Задача #{inst.id} выполнена! +{tmpl.points} баллов"
         )
 
+async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data or ""
+    user_tg = query.from_user
+
+    if data == "noop":
+        return
+
+    action, _, raw_id = data.partition(":")
+    try:
+        instance_id = int(raw_id)
+    except ValueError:
+        await query.edit_message_text("Некорректный id задачи.")
+        return
+
+    with SessionLocal() as session:
+        inst = session.query(TaskInstance).filter_by(id=instance_id).first()
+        if not inst:
+            await query.edit_message_text("Задача не найдена.")
+            return
+
+        tmpl = inst.template
+        user = get_or_create_user(session, user_tg)
+
+        # Взять в работу
+        if action == "take":
+            if inst.status != "free":
+                await query.edit_message_text("Задача уже занята или выполнена.")
+                return
+            inst.status = "in_progress"
+            inst.assigned_user_id = user.id
+            session.commit()
+
+            await query.edit_message_text(
+                f"{tmpl.title}\n"
+                f"Баллы: {tmpl.points}\n"
+                f"Статус: в работе у {user.full_name or user.username}"
+            )
+            return
+
+        # Отказаться
+        if action == "drop":
+            if inst.status != "in_progress" or inst.assigned_user_id != user.id:
+                await query.edit_message_text("Вы не выполняете эту задачу.")
+                return
+            inst.status = "free"
+            inst.assigned_user_id = None
+            session.commit()
+
+            await query.edit_message_text(
+                f"{tmpl.title}\n"
+                f"Баллы: {tmpl.points}\n"
+                f"Статус: свободна"
+            )
+            return
+
+        # Выполнено
+        if action == "done":
+            if inst.status == "done":
+                await query.edit_message_text("Задача уже выполнена.")
+                return
+            if inst.status == "in_progress" and inst.assigned_user_id != user.id:
+                await query.edit_message_text("Вы не выполняете эту задачу.")
+                return
+
+            inst.status = "done"
+            if inst.assigned_user_id is None:
+                inst.assigned_user_id = user.id
+            inst.done_by_user_id = user.id
+            inst.done_at = get_today()
+
+            comp = Completion(
+                user_id=user.id,
+                task_instance_id=inst.id,
+                points=tmpl.points,
+            )
+            session.add(comp)
+            session.commit()
+
+            await query.edit_message_text(
+                f"{tmpl.title}\n"
+                f"Баллы: {tmpl.points}\n"
+                f"Статус: выполнена {user.full_name or user.username}"
+            )
+            return
+
+        # Если действие неизвестно
+        await query.edit_message_text("Неизвестное действие.")
 
 async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with SessionLocal() as session:
@@ -269,6 +396,8 @@ def main():
     application.add_handler(CommandHandler("today", today))
     application.add_handler(CommandHandler("done", done))
     application.add_handler(CommandHandler("score", score))
+    application.add_handler(CallbackQueryHandler(task_button_handler))
+
 
     loop = asyncio.get_event_loop()
     loop.create_task(run_http_server())
