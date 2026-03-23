@@ -1,6 +1,7 @@
 import os
 import asyncio
 from datetime import timedelta, time, date
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -27,6 +28,8 @@ from db import (
 # Загружаем токен
 load_dotenv()
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+LOCAL_TZ = ZoneInfo("Europe/Moscow")
+MAIN_CHAT_ID = None
 
 
 # ---------- Вспомогательные функции работы с БД ----------
@@ -652,6 +655,121 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text)
 
+async def send_daily_digest(context: ContextTypes.DEFAULT_TYPE):
+    """Ежедневный дайджест задач на сегодня в главный чат."""
+    # пока считаем, что бот работает в одном чате: берём chat_id из data
+    chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
+    if chat_id is None:
+        return
+
+    today_date = get_today()
+
+    with SessionLocal() as session:
+        instances = (
+            session.query(TaskInstance)
+            .join(TaskTemplate)
+            .filter(TaskInstance.date == today_date)
+            .all()
+        )
+
+        if not instances:
+            await context.bot.send_message(chat_id=chat_id, text="На сегодня дел нет! 🎉")
+            return
+
+        lines = []
+        for inst in instances:
+            tmpl = inst.template
+            prefix = "[HIGH] " if inst.priority == "high" else ""
+            status_text = {
+                "free": "свободна",
+                "in_progress": "в работе",
+                "done": "выполнена",
+            }.get(inst.status, inst.status)
+
+            performer = ""
+            if inst.status in ("in_progress", "done") and inst.assigned_user:
+                performer = (
+                    f" у {inst.assigned_user.full_name or inst.assigned_user.username}"
+                )
+
+            line = (
+                f"{inst.id}. {prefix}{tmpl.title} — {tmpl.points} баллов — "
+                f"{status_text}{performer}"
+            )
+            lines.append(line)
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Ежедневный дайджест задач:\n" + "\n".join(lines),
+        )
+async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
+    """Итоги дня, а заодно недели/месяца/года, если сегодня конец периода."""
+    chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
+    if chat_id is None:
+        return
+
+    today = date.today()
+    (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
+
+    with SessionLocal() as session:
+        rows = (
+            session.query(User, Completion)
+            .join(Completion, Completion.user_id == User.id)
+            .all()
+        )
+
+        if not rows:
+            await context.bot.send_message(chat_id=chat_id, text="Сегодня никто не заработал баллы.")
+            return
+
+        # Баллы за сегодня
+        totals_today = {}
+        for user, comp in rows:
+            if comp.created_at.date() == today:
+                totals_today[user.id] = totals_today.get(user.id, 0) + comp.points
+
+        def block_for_period(title, start, end):
+            totals = {}
+            for user, comp in rows:
+                d = comp.created_at.date()
+                if start <= d <= end:
+                    totals[user.id] = totals.get(user.id, 0) + comp.points
+            if not totals:
+                return f"{title}: пока нет баллов"
+            lines = []
+            for uid, pts in sorted(totals.items(), key=lambda x: x[1], reverse=True)[:3]:
+                u = session.query(User).get(uid)
+                name = u.full_name or u.username or str(u.telegram_id)
+                lines.append(f"{name}: {pts}")
+            return f"{title}:\n" + "\n".join(lines)
+
+        parts = []
+
+        # День
+        if totals_today:
+            day_lines = []
+            for uid, pts in sorted(totals_today.items(), key=lambda x: x[1], reverse=True)[:3]:
+                u = session.query(User).get(uid)
+                name = u.full_name or u.username or str(u.telegram_id)
+                day_lines.append(f"{name}: {pts}")
+            parts.append("Итоги дня:\n" + "\n".join(day_lines))
+        else:
+            parts.append("Итоги дня: никто не заработал баллы.")
+
+        # Конец недели
+        if today == week_end:
+            parts.append(block_for_period("Итоги недели", week_start, week_end))
+
+        # Конец месяца
+        if today == month_end:
+            parts.append(block_for_period("Итоги месяца", month_start, month_end))
+
+        # Конец года
+        if today == year_end:
+            parts.append(block_for_period("Итоги года", year_start, year_end))
+
+    await context.bot.send_message(chat_id=chat_id, text="\n\n".join(parts))
+
 # -------- Минимальный HTTP-сервер для Render --------
 
 
@@ -683,19 +801,34 @@ def main():
     application.add_handler(CommandHandler("today", today))
     application.add_handler(CommandHandler("again", again))
     application.add_handler(CommandHandler("done", done))
-    application.add_handler(CommandHandler("score", score))       # всё время
-    application.add_handler(CommandHandler("stats", stats))       # общая стата
-    application.add_handler(CommandHandler("my_stats", my_stats)) # личная
+    application.add_handler(CommandHandler("score", score))
+    application.add_handler(CommandHandler("stats", stats))
+    application.add_handler(CommandHandler("my_stats", my_stats))
     application.add_handler(CommandHandler("leaderboard", leaderboard))
     application.add_handler(CallbackQueryHandler(task_button_handler))
 
+    job_queue = application.job_queue
 
+    # Ежедневный дайджест в 9:00 по Риге
+    job_queue.run_daily(
+        send_daily_digest,
+        time=time(hour=9, minute=0, tzinfo=LOCAL_TZ),
+        data={"chat_id": MAIN_CHAT_ID},
+        name="daily_digest",
+    )  [web:310][web:316]
 
-      # [web:310]
+    # Ежедневные итоги в 23:59 по Риге
+    job_queue.run_daily(
+        send_daily_summary,
+        time=time(hour=23, minute=59, tzinfo=LOCAL_TZ),
+        data={"chat_id": MAIN_CHAT_ID},
+        name="daily_summary",
+    )
 
     loop = asyncio.get_event_loop()
     loop.create_task(run_http_server())
     application.run_polling()
+
 
 
 
