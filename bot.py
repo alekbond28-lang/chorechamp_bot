@@ -148,7 +148,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return
 
-
     global MAIN_CHAT_ID
     MAIN_CHAT_ID = update.effective_chat.id
 
@@ -180,7 +179,6 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Передай его владельцу, чтобы он добавил тебя."
     )
     return
-
 
     if not context.args:
         await update.message.reply_text("Формат: /add Название | баллы")
@@ -235,7 +233,6 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Передай его владельцу, чтобы он добавил тебя."
     )
     return
-
 
     chat_id = update.effective_chat.id
     today_date = get_today()
@@ -314,7 +311,6 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return
 
-
     if not context.args:
         await update.message.reply_text("Формат: /done id_задачи")
         return
@@ -361,7 +357,6 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Передай его владельцу, чтобы он добавил тебя."
     )
     return
-
 
     """Показать задачи на сегодня с кнопками для повторного выполнения."""
     chat_id = update.effective_chat.id
@@ -425,7 +420,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             show_alert=True,
         )
         return
-
 
     query = update.callback_query
     await query.answer()
@@ -556,7 +550,6 @@ async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return
 
-
     with SessionLocal() as session:
         rows = (
             session.query(User, Completion)
@@ -611,7 +604,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Передай его владельцу, чтобы он добавил тебя."
     )
     return
-
 
     """Общая статистика по дому: неделя, месяц, год, всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
@@ -678,7 +670,6 @@ async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return
 
-
     """Личная статистика пользователя: неделя, месяц, год, всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
     tg_user = update.effective_user
@@ -728,7 +719,6 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Передай его владельцу, чтобы он добавил тебя."
     )
     return
-
 
     """Лидеры за неделю, месяц, год и всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
