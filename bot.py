@@ -136,11 +136,6 @@ def get_period_bounds_for_today():
     return (week_start, week_end), (month_start, month_end), (year_start, year_end)
 
 
-async def test_job(context: ContextTypes.DEFAULT_TYPE):
-    chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
-    if chat_id is None:
-        return
-    await context.bot.send_message(chat_id=chat_id, text="Тестовый джоб сработал ✅")
 
 
 # ---------- Хендлеры бота ----------
@@ -849,14 +844,6 @@ async def run_http_server():
 
 # -------- Запуск бота + HTTP-сервер --------
 
-async def test_carry_over(context: ContextTypes.DEFAULT_TYPE):
-    await carry_over_tasks(context)
-    # По желанию — уведомление в чат, чтобы было видно, что сработало
-    chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
-    if chat_id:
-        await context.bot.send_message(chat_id=chat_id, text="Тестовый перенос задач выполнен ✅")
-
-
 def main():
     init_db()
 
@@ -873,26 +860,7 @@ def main():
     application.add_handler(CommandHandler("leaderboard", leaderboard))
     application.add_handler(CallbackQueryHandler(task_button_handler))
 
-    
     job_queue = application.job_queue
-
-    # Тест: разовый запуск переноса через минуту
-    from datetime import datetime, timedelta
-    run_at = datetime.now(LOCAL_TZ) + timedelta(minutes=1)
-    job_queue.run_once(
-        test_carry_over,
-        when=run_at,
-        data={"chat_id": MAIN_CHAT_ID},
-        name="test_carry_over",
-    )
-
-    # Перенос невыполненных задач в 23:50 по Москве
-    job_queue.run_daily(
-        carry_over_tasks,
-        time=time(hour=23, minute=50, tzinfo=LOCAL_TZ),
-        name="carry_over_tasks",
-    )
-    ...
 
     # Перенос невыполненных задач в 23:50 по Москве
     job_queue.run_daily(
@@ -920,7 +888,6 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(run_http_server())
     application.run_polling()
-
 
 
 if __name__ == "__main__":
