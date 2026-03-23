@@ -820,15 +820,15 @@ def main():
 
     job_queue = application.job_queue
 
-    # Ежедневный дайджест в 9:00 по Риге
+    # Ежедневный дайджест в 9:00 по Москве
     job_queue.run_daily(
         send_daily_digest,
         time=time(hour=9, minute=0, tzinfo=LOCAL_TZ),
         data={"chat_id": MAIN_CHAT_ID},
         name="daily_digest",
-    )  [web:310][web:316]
+    )
 
-    # Ежедневные итоги в 23:59 по Риге
+    # Ежедневные итоги в 23:59 по Москве
     job_queue.run_daily(
         send_daily_summary,
         time=time(hour=23, minute=59, tzinfo=LOCAL_TZ),
@@ -839,8 +839,6 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(run_http_server())
     application.run_polling()
-
-
 
 
 if __name__ == "__main__":
