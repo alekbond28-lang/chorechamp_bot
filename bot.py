@@ -273,6 +273,52 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"Задача #{inst.id} выполнена! +{tmpl.points} баллов"
         )
+async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Начислить баллы за задачу ещё раз в тот же день (редкий кейс)."""
+    if not context.args:
+        await update.message.reply_text("Формат: /again id_задачи")
+        return
+
+    try:
+        instance_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("id должен быть числом")
+        return
+
+    with SessionLocal() as session:
+        base_inst = session.query(TaskInstance).filter_by(id=instance_id).first()
+        if not base_inst:
+            await update.message.reply_text("Такой задачи нет")
+            return
+
+        tmpl = base_inst.template
+        user = get_or_create_user(session, update.effective_user)
+
+        # создаём новый экземпляр на сегодня
+        new_inst = TaskInstance(
+            template_id=tmpl.id,
+            date=get_today(),
+            status="done",
+            priority="normal",
+            assigned_user_id=user.id,
+            done_by_user_id=user.id,
+            done_at=get_today(),
+        )
+        session.add(new_inst)
+        session.flush()  # чтобы появился id
+
+        comp = Completion(
+            user_id=user.id,
+            task_instance_id=new_inst.id,
+            points=tmpl.points,
+        )
+        session.add(comp)
+        session.commit()
+
+        await update.message.reply_text(
+            f"Дополнительное выполнение задачи '{tmpl.title}' зачтено. "
+            f"+{tmpl.points} баллов"
+        )
 
 async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -419,8 +465,10 @@ def main():
     application.add_handler(CommandHandler("add", add_task))
     application.add_handler(CommandHandler("today", today))
     application.add_handler(CommandHandler("done", done))
+    application.add_handler(CommandHandler("again", again))
     application.add_handler(CommandHandler("score", score))
     application.add_handler(CallbackQueryHandler(task_button_handler))
+
 
       # [web:310]
 
