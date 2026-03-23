@@ -1,6 +1,6 @@
 import os
 import asyncio
-from datetime import timedelta, time
+from datetime import timedelta, time, date
 
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -101,6 +101,29 @@ async def carry_over_tasks(context: ContextTypes.DEFAULT_TYPE):
             session.add(new_inst)
 
         session.commit()
+
+def get_period_bounds_for_today():
+    """Возвращает границы недели, месяца и года для сегодняшнего дня."""
+    today = date.today()
+
+    # Неделя: понедельник - воскресенье
+    weekday = today.weekday()  # 0 = понедельник
+    week_start = today - timedelta(days=weekday)
+    week_end = week_start + timedelta(days=6)
+
+    # Месяц: 1-е число - последнее
+    month_start = today.replace(day=1)
+    if today.month == 12:
+        next_month_start = today.replace(year=today.year + 1, month=1, day=1)
+    else:
+        next_month_start = today.replace(month=today.month + 1, day=1)
+    month_end = next_month_start - timedelta(days=1)
+
+    # Год: 1 января - 31 декабря
+    year_start = today.replace(month=1, day=1)
+    year_end = today.replace(month=12, day=31)
+
+    return (week_start, week_end), (month_start, month_end), (year_start, year_end)
 
 # ---------- Хендлеры бота ----------
 
@@ -472,6 +495,162 @@ async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("Рейтинг (всё время):\n" + "\n".join(lines))
 
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Общая статистика по дому: неделя, месяц, год, всё время."""
+    (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
+
+    with SessionLocal() as session:
+        # забираем все начисления
+        rows = (
+            session.query(User, Completion)
+            .join(Completion, Completion.user_id == User.id)
+            .all()
+        )
+
+        if not rows:
+            await update.message.reply_text("Пока никто не заработал баллы")
+            return
+
+        totals_all = {}
+        totals_week = {}
+        totals_month = {}
+        totals_year = {}
+
+        for user, comp in rows:
+            day = comp.created_at.date()
+            uid = user.id
+
+            # всё время
+            totals_all[uid] = totals_all.get(uid, 0) + comp.points
+
+            # неделя
+            if week_start <= day <= week_end:
+                totals_week[uid] = totals_week.get(uid, 0) + comp.points
+
+            # месяц
+            if month_start <= day <= month_end:
+                totals_month[uid] = totals_month.get(uid, 0) + comp.points
+
+            # год
+            if year_start <= day <= year_end:
+                totals_year[uid] = totals_year.get(uid, 0) + comp.points
+
+        def format_block(title, data_dict):
+            if not data_dict:
+                return f"{title}: пока нет баллов"
+            lines = []
+            for uid, pts in sorted(data_dict.items(), key=lambda x: x[1], reverse=True):
+                u = session.query(User).get(uid)
+                name = u.full_name or u.username or str(u.telegram_id)
+                lines.append(f"{name}: {pts}")
+            return f"{title}:\n" + "\n".join(lines)
+
+        text = "\n\n".join(
+            [
+                format_block("Неделя", totals_week),
+                format_block("Месяц", totals_month),
+                format_block("Год", totals_year),
+                format_block("Всё время", totals_all),
+            ]
+        )
+
+    await update.message.reply_text(text)
+
+async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Личная статистика пользователя: неделя, месяц, год, всё время."""
+    (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
+    tg_user = update.effective_user
+
+    with SessionLocal() as session:
+        user = get_or_create_user(session, tg_user)
+
+        comps = (
+            session.query(Completion)
+            .filter(Completion.user_id == user.id)
+            .all()
+        )
+
+        if not comps:
+            await update.message.reply_text("У тебя пока нет баллов 🙂")
+            return
+
+        total_all = total_week = total_month = total_year = 0
+
+        for comp in comps:
+            day = comp.created_at.date()
+            pts = comp.points
+
+            total_all += pts
+
+            if week_start <= day <= week_end:
+                total_week += pts
+            if month_start <= day <= month_end:
+                total_month += pts
+            if year_start <= day <= year_end:
+                total_year += pts
+
+    await update.message.reply_text(
+        "Твоя статистика:\n"
+        f"Неделя: {total_week}\n"
+        f"Месяц: {total_month}\n"
+        f"Год: {total_year}\n"
+        f"Всё время: {total_all}"
+    )
+
+async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Лидеры за неделю, месяц, год и всё время."""
+    (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
+
+    with SessionLocal() as session:
+        rows = (
+            session.query(User, Completion)
+            .join(Completion, Completion.user_id == User.id)
+            .all()
+        )
+
+        if not rows:
+            await update.message.reply_text("Лидеров пока нет — никто не заработал баллы")
+            return
+
+        totals_week = {}
+        totals_month = {}
+        totals_year = {}
+        totals_all = {}
+
+        for user, comp in rows:
+            day = comp.created_at.date()
+            uid = user.id
+            pts = comp.points
+
+            totals_all[uid] = totals_all.get(uid, 0) + pts
+
+            if week_start <= day <= week_end:
+                totals_week[uid] = totals_week.get(uid, 0) + pts
+            if month_start <= day <= month_end:
+                totals_month[uid] = totals_month.get(uid, 0) + pts
+            if year_start <= day <= year_end:
+                totals_year[uid] = totals_year.get(uid, 0) + pts
+
+        def top_3_block(title, data_dict):
+            if not data_dict:
+                return f"{title}: пока никто не в лидерах"
+            lines = []
+            for uid, pts in sorted(data_dict.items(), key=lambda x: x[1], reverse=True)[:3]:
+                u = session.query(User).get(uid)
+                name = u.full_name or u.username or str(u.telegram_id)
+                lines.append(f"{name}: {pts}")
+            return f"{title}:\n" + "\n".join(lines)
+
+        text = "\n\n".join(
+            [
+                top_3_block("Лидеры недели", totals_week),
+                top_3_block("Лидеры месяца", totals_month),
+                top_3_block("Лидеры года", totals_year),
+                top_3_block("Лидеры (всё время)", totals_all),
+            ]
+        )
+
+    await update.message.reply_text(text)
 
 # -------- Минимальный HTTP-сервер для Render --------
 
@@ -504,7 +683,10 @@ def main():
     application.add_handler(CommandHandler("today", today))
     application.add_handler(CommandHandler("again", again))
     application.add_handler(CommandHandler("done", done))
-    application.add_handler(CommandHandler("score", score))
+    application.add_handler(CommandHandler("score", score))       # всё время
+    application.add_handler(CommandHandler("stats", stats))       # общая стата
+    application.add_handler(CommandHandler("my_stats", my_stats)) # личная
+    application.add_handler(CommandHandler("leaderboard", leaderboard))
     application.add_handler(CallbackQueryHandler(task_button_handler))
 
 
