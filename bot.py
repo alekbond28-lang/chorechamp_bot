@@ -246,6 +246,59 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("id должен быть числом")
         return
+async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать задачи на сегодня с кнопками для повторного выполнения."""
+    chat_id = update.effective_chat.id
+    today_date = get_today()
+
+    with SessionLocal() as session:
+        instances = (
+            session.query(TaskInstance)
+            .join(TaskTemplate)
+            .filter(TaskInstance.date == today_date)
+            .all()
+        )
+
+        if not instances:
+            await update.message.reply_text("На сегодня дел нет! 🎉")
+            return
+
+        for inst in instances:
+            tmpl = inst.template
+            prefix = "[HIGH] " if inst.priority == "high" else ""
+            status_text = {
+                "free": "свободна",
+                "in_progress": "в работе",
+                "done": "выполнена",
+            }.get(inst.status, inst.status)
+
+            performer = ""
+            if inst.status in ("in_progress", "done") and inst.assigned_user:
+                performer = (
+                    f" у {inst.assigned_user.full_name or inst.assigned_user.username}"
+                )
+
+            text = (
+                f"{prefix}{tmpl.title}\n"
+                f"Баллы: {tmpl.points}\n"
+                f"Статус: {status_text}{performer}"
+            )
+
+            # Кнопка для добавления ещё одного выполнения
+            buttons = [
+                [
+                    InlineKeyboardButton(
+                        "Добавить ещё раз", callback_data=f"again:{inst.id}"
+                    )
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(buttons)
+
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
 
     with SessionLocal() as session:
         inst = session.query(TaskInstance).filter_by(id=instance_id).first()
@@ -273,52 +326,7 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"Задача #{inst.id} выполнена! +{tmpl.points} баллов"
         )
-async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начислить баллы за задачу ещё раз в тот же день (редкий кейс)."""
-    if not context.args:
-        await update.message.reply_text("Формат: /again id_задачи")
-        return
 
-    try:
-        instance_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("id должен быть числом")
-        return
-
-    with SessionLocal() as session:
-        base_inst = session.query(TaskInstance).filter_by(id=instance_id).first()
-        if not base_inst:
-            await update.message.reply_text("Такой задачи нет")
-            return
-
-        tmpl = base_inst.template
-        user = get_or_create_user(session, update.effective_user)
-
-        # создаём новый экземпляр на сегодня
-        new_inst = TaskInstance(
-            template_id=tmpl.id,
-            date=get_today(),
-            status="done",
-            priority="normal",
-            assigned_user_id=user.id,
-            done_by_user_id=user.id,
-            done_at=get_today(),
-        )
-        session.add(new_inst)
-        session.flush()  # чтобы появился id
-
-        comp = Completion(
-            user_id=user.id,
-            task_instance_id=new_inst.id,
-            points=tmpl.points,
-        )
-        session.add(comp)
-        session.commit()
-
-        await update.message.reply_text(
-            f"Дополнительное выполнение задачи '{tmpl.title}' зачтено. "
-            f"+{tmpl.points} баллов"
-        )
 
 async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -407,6 +415,36 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"Статус: выполнена {user.full_name or user.username}"
             )
             return
+                # Повторное выполнение (ещё раз)
+        if action == "again":
+            # базовый экземпляр
+            today_date = get_today()
+            new_inst = TaskInstance(
+                template_id=tmpl.id,
+                date=today_date,
+                status="done",
+                priority="normal",
+                assigned_user_id=user.id,
+                done_by_user_id=user.id,
+                done_at=today_date,
+            )
+            session.add(new_inst)
+            session.flush()
+
+            comp = Completion(
+                user_id=user.id,
+                task_instance_id=new_inst.id,
+                points=tmpl.points,
+            )
+            session.add(comp)
+            session.commit()
+
+            await query.edit_message_text(
+                f"{tmpl.title}\n"
+                f"Баллы: {tmpl.points}\n"
+                f"Статус: выполнена ещё раз {user.full_name or user.username}"
+            )
+            return
 
         # Если действие неизвестно
         await query.edit_message_text("Неизвестное действие.")
@@ -464,10 +502,11 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("add", add_task))
     application.add_handler(CommandHandler("today", today))
-    application.add_handler(CommandHandler("done", done))
     application.add_handler(CommandHandler("again", again))
+    application.add_handler(CommandHandler("done", done))
     application.add_handler(CommandHandler("score", score))
     application.add_handler(CallbackQueryHandler(task_button_handler))
+
 
 
       # [web:310]
