@@ -51,6 +51,18 @@ def is_allowed(update: Update) -> bool:
     return user.id in ALLOWED_USER_IDS
 
 
+def get_or_create_user(session, tg_user) -> User:
+    user = session.query(User).filter_by(telegram_id=tg_user.id).first()
+    if not user:
+        user = User(
+            telegram_id=tg_user.id,
+            username=tg_user.username,
+            full_name=tg_user.full_name,
+        )
+        session.add(user)
+        session.commit()
+    return user
+
 
 def ensure_default_tasks(session):
     """Создаём несколько дефолтных задач, если их ещё нет."""
@@ -134,10 +146,7 @@ def get_period_bounds_for_today():
     return (week_start, week_end), (month_start, month_end), (year_start, year_end)
 
 
-
-
 # ---------- Хендлеры бота ----------
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
@@ -168,7 +177,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/leaderboard — лидеры\n\n"
         "Пока бот работает в одной группе/чате как один 'дом'."
     )
-
 
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -572,6 +580,7 @@ async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("Рейтинг (всё время):\n" + "\n".join(lines))
 
+
 async def allow_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Только владелец может добавлять участников
     if not is_owner(update):
@@ -773,118 +782,6 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     await update.message.reply_text(text)
-
-
-async def send_daily_digest(context: ContextTypes.DEFAULT_TYPE):
-    """Ежедневный дайджест задач на сегодня в главный чат."""
-    chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
-    if chat_id is None:
-        return
-
-    today_date = get_today()
-
-    with SessionLocal() as session:
-        instances = (
-            session.query(TaskInstance)
-            .join(TaskTemplate)
-            .filter(TaskInstance.date == today_date)
-            .all()
-        )
-
-        if not instances:
-            await context.bot.send_message(chat_id=chat_id, text="На сегодня дел нет! 🎉")
-            return
-
-        lines = []
-        for inst in instances:
-            tmpl = inst.template
-            prefix = "[HIGH] " if inst.priority == "high" else ""
-            status_text = {
-                "free": "свободна",
-                "in_progress": "в работе",
-                "done": "выполнена",
-            }.get(inst.status, inst.status)
-
-            performer = ""
-            if inst.status in ("in_progress", "done") and inst.assigned_user:
-                performer = (
-                    f" у {inst.assigned_user.full_name or inst.assigned_user.username}"
-                )
-
-            line = (
-                f"{inst.id}. {prefix}{tmpl.title} — {tmpl.points} баллов — "
-                f"{status_text}{performer}"
-            )
-            lines.append(line)
-
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="Ежедневный дайджест задач:\n" + "\n".join(lines),
-        )
-
-
-async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
-    """Итоги дня, а заодно недели/месяца/года, если сегодня конец периода."""
-    chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
-    if chat_id is None:
-        return
-
-    today = date.today()
-    (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
-
-    with SessionLocal() as session:
-        rows = (
-            session.query(User, Completion)
-            .join(Completion, Completion.user_id == User.id)
-            .all()
-        )
-
-        if not rows:
-            await context.bot.send_message(chat_id=chat_id, text="Сегодня никто не заработал баллы.")
-            return
-
-        totals_today = {}
-        for user, comp in rows:
-            if comp.created_at.date() == today:
-                totals_today[user.id] = totals_today.get(user.id, 0) + comp.points
-
-        def block_for_period(title, start, end):
-            totals = {}
-            for user, comp in rows:
-                d = comp.created_at.date()
-                if start <= d <= end:
-                    totals[user.id] = totals.get(user.id, 0) + comp.points
-            if not totals:
-                return f"{title}: пока нет баллов"
-            lines = []
-            for uid, pts in sorted(totals.items(), key=lambda x: x[1], reverse=True)[:3]:
-                u = session.query(User).get(uid)
-                name = u.full_name or u.username or str(u.telegram_id)
-                lines.append(f"{name}: {pts}")
-            return f"{title}:\n" + "\n".join(lines)
-
-        parts = []
-
-        if totals_today:
-            day_lines = []
-            for uid, pts in sorted(totals_today.items(), key=lambda x: x[1], reverse=True)[:3]:
-                u = session.query(User).get(uid)
-                name = u.full_name or u.username or str(u.telegram_id)
-                day_lines.append(f"{name}: {pts}")
-            parts.append("Итоги дня:\n" + "\n".join(day_lines))
-        else:
-            parts.append("Итоги дня: никто не заработал баллы.")
-
-        if today == week_end:
-            parts.append(block_for_period("Итоги недели", week_start, week_end))
-
-        if today == month_end:
-            parts.append(block_for_period("Итоги месяца", month_start, month_end))
-
-        if today == year_end:
-            parts.append(block_for_period("Итоги года", year_start, year_end))
-
-    await context.bot.send_message(chat_id=chat_id, text="\n\n".join(parts))
 
 
 # -------- Минимальный HTTP-сервер для Render --------
