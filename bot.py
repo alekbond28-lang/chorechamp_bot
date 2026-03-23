@@ -150,6 +150,52 @@ async def carry_over_tasks(context: ContextTypes.DEFAULT_TYPE):
 
         session.commit()
 
+async def generate_recurring_tasks(context: ContextTypes.DEFAULT_TYPE):
+    """Ежедневная генерация инстансов по шаблонам."""
+    today = get_today()
+    weekday = today.weekday()  # 0=понедельник
+    day = today.day
+
+    with SessionLocal() as session:
+        templates = session.query(TaskTemplate).all()
+
+        for tmpl in templates:
+            p = tmpl.periodicity
+
+            # daily
+            if p == "daily":
+                should_create = True
+            # weekly: создаём раз в неделю в понедельник
+            elif p == "weekly":
+                should_create = (weekday == 0)
+            # monthly: 1 число
+            elif p == "monthly":
+                should_create = (day == 1)
+            # quarterly: 1 число января, апреля, июля, октября
+            elif p == "quarterly":
+                should_create = (day == 1 and today.month in (1, 4, 7, 10))
+            # два раза в неделю: понедельник и четверг
+            elif p == "twice_weekly":
+                should_create = (weekday in (0, 3))
+            # два раза в месяц: 1 и 15 числа
+            elif p == "twice_monthly":
+                should_create = (day in (1, 15))
+            else:
+                should_create = False
+
+            if not should_create:
+                continue
+
+            inst = TaskInstance(
+                template_id=tmpl.id,
+                date=today,
+                status="free",
+                priority="normal",
+            )
+            session.add(inst)
+
+        session.commit()
+
 
 def get_period_bounds_for_today():
     """Возвращает границы недели, месяца и года для сегодняшнего дня."""
@@ -195,17 +241,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "Привет! Это бот для домашних дел.\n\n"
-        "Основные команды:\n"
-        "/add название | баллы — добавить задачу\n"
-        "/today — дела на сегодня\n"
-        "/again — добавить ещё раз выполненную задачу\n"
-        "/done id — отметить выполненным\n"
-        "/score — рейтинг по баллам (упрощённая версия)\n"
-        "/stats — общая статистика\n"
-        "/my_stats — личная статистика\n"
-        "/leaderboard — лидеры\n\n"
-        "Пока бот работает в одной группе/чате как один 'дом'."
+        "Как пользоваться:\n"
+        "• /today — дела на сегодня\n"
+        "• /add — добавить новую задачу (пошагово)\n"
+        "• /again — отметить, что задача сделана ещё раз\n"
+        "• /mytasks — мои активные задачи\n"
+        "• /my_stats — моя статистика\n"
+        "• /leaderboard — лидеры по баллам\n\n"
+        "Если ты видишь сообщение про приглашение — отправь свой id владельцу дома."
     )
+
 
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -347,6 +392,79 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     buttons.append(
                         [InlineKeyboardButton("Занято", callback_data="noop")]
+                    )
+            elif inst.status == "done":
+                buttons.append(
+                    [InlineKeyboardButton("Выполнено ✅", callback_data="noop")]
+                )
+
+            reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
+
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+
+async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update):
+        await update.message.reply_text(
+            "Этот бот доступен только по приглашению.\n"
+            f"Твой id: {update.effective_user.id}\n"
+            "Передай его владельцу, чтобы он добавил тебя."
+        )
+        return
+
+    chat_id = update.effective_chat.id
+    today_date = get_today()
+    tg_user = update.effective_user
+
+    with SessionLocal() as session:
+        user = get_or_create_user(session, tg_user)
+
+        instances = (
+            session.query(TaskInstance)
+            .join(TaskTemplate)
+            .filter(TaskInstance.date == today_date)
+            .filter(
+                (TaskInstance.assigned_user_id == user.id)
+                | (TaskInstance.done_by_user_id == user.id)
+            )
+            .all()
+        )
+
+        if not instances:
+            await update.message.reply_text("На сегодня у тебя нет задач 🙂")
+            return
+
+        for inst in instances:
+            tmpl = inst.template
+            prefix = "[HIGH] " if inst.priority == "high" else ""
+            status_text = {
+                "free": "свободна",
+                "in_progress": "в работе",
+                "done": "выполнена",
+            }.get(inst.status, inst.status)
+
+            text = (
+                f"{inst.id}. {prefix}{tmpl.title}\n"
+                f"Баллы: {tmpl.points}\n"
+                f"Статус: {status_text}"
+            )
+
+            buttons = []
+
+            if inst.status == "free":
+                buttons.append(
+                    [InlineKeyboardButton("Взять в работу", callback_data=f"take:{inst.id}")]
+                )
+            elif inst.status == "in_progress":
+                if inst.assigned_user_id == user.id:
+                    buttons.append(
+                        [
+                            InlineKeyboardButton("Выполнено", callback_data=f"done:{inst.id}"),
+                            InlineKeyboardButton("Отказаться", callback_data=f"drop:{inst.id}"),
+                        ]
                     )
             elif inst.status == "done":
                 buttons.append(
@@ -1055,6 +1173,8 @@ def main():
     application.add_handler(CommandHandler("my_stats", my_stats))
     application.add_handler(CommandHandler("leaderboard", leaderboard))
     application.add_handler(CommandHandler("allow", allow_user))
+    application.add_handler(CommandHandler("mytasks", mytasks))
+
 
     # Обработка шагов добавления задачи (название и баллы)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_task_flow))
@@ -1084,6 +1204,12 @@ def main():
         time=time(hour=23, minute=59, tzinfo=LOCAL_TZ),
         data={"chat_id": MAIN_CHAT_ID},
         name="daily_summary",
+    )
+    # Генерация регулярных задач каждый день в 6:00 по Москве
+    job_queue.run_daily(
+        generate_recurring_tasks,
+        time=time(hour=6, minute=0, tzinfo=LOCAL_TZ),
+        name="generate_recurring_tasks",
     )
 
     loop = asyncio.get_event_loop()
