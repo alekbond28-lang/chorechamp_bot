@@ -11,6 +11,7 @@ from telegram import (
     InlineKeyboardMarkup,
     ReplyKeyboardMarkup,
     KeyboardButton,
+    BotCommand,
 )
 
 from telegram.ext import (
@@ -690,22 +691,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     action, _, raw_id = data.partition(":")
-    try:
-        instance_id = int(raw_id)
-    except ValueError:
-        await query.edit_message_text("Некорректный id задачи.")
-        return
-
-    with SessionLocal() as session:
-        inst = session.query(TaskInstance).filter_by(id=instance_id).first()
-        if not inst:
-            await query.edit_message_text("Задача не найдена.")
-            return
-
-        tmpl = inst.template
-        user = get_or_create_user(session, user_tg)
-
-        # ... остальной код handler'а (take/drop/done/again) без изменений ...
 
     try:
         instance_id = int(raw_id)
@@ -1181,6 +1166,23 @@ async def run_http_server():
 
 # -------- Запуск бота + HTTP-сервер --------
 
+async def setup_commands(application):
+    commands = [
+        BotCommand("start", "Описание бота и главное меню"),
+        BotCommand("today", "Показать задачи на сегодня"),
+        BotCommand("mytasks", "Мои задачи на сегодня"),
+        BotCommand("add", "Добавить новую задачу"),
+        BotCommand("again", "Отметить, что задача сделана ещё раз"),
+        BotCommand("my_stats", "Моя статистика"),
+        BotCommand("stats", "Статистика по дому"),
+        BotCommand("leaderboard", "Лидеры по баллам"),
+        BotCommand("score", "Рейтинг за всё время"),
+        BotCommand("allow", "Добавить участника (только владелец)"),
+    ]
+
+    await application.bot.set_my_commands(commands)
+
+
 def main():
     init_db()
 
@@ -1198,10 +1200,7 @@ def main():
     application.add_handler(CommandHandler("allow", allow_user))
     application.add_handler(CommandHandler("mytasks", mytasks))
 
-
-    # Обработка шагов добавления задачи (название и баллы)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_task_flow))
-
     application.add_handler(CallbackQueryHandler(task_button_handler))
 
     job_queue = application.job_queue
@@ -1237,6 +1236,10 @@ def main():
 
     loop = asyncio.get_event_loop()
     loop.create_task(run_http_server())
+
+    # ВАЖНО: перед запуском polling один раз настроить команды
+    loop.run_until_complete(setup_commands(application))
+
     application.run_polling()
 
 
