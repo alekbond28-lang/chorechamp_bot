@@ -1,6 +1,6 @@
 import os
 import asyncio
-from datetime import timedelta, time, date
+from datetime import timedelta, time, date, datetime
 from zoneinfo import ZoneInfo
 
 from telegram.ext import MessageHandler, filters
@@ -13,14 +13,12 @@ from telegram import (
     KeyboardButton,
     BotCommand,
 )
-
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     ContextTypes,
     CallbackQueryHandler,
 )
-
 from aiohttp import web
 
 from db import (
@@ -39,23 +37,20 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 LOCAL_TZ = ZoneInfo("Europe/Moscow")
 MAIN_CHAT_ID = None
 
-# тут укажи свой настоящий Telegram user_id
+# укажи свой настоящий Telegram user_id
 OWNER_ID = 680630275
 ALLOWED_USER_IDS = {OWNER_ID}
-
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [[KeyboardButton("/today"), KeyboardButton("/mytasks")]],
     resize_keyboard=True,
 )
 
-
 # ---------- Вспомогательные функции ----------
 
 def is_owner(update: Update) -> bool:
     user = update.effective_user
     return user and user.id == OWNER_ID
-
 
 def is_allowed(update: Update) -> bool:
     user = update.effective_user
@@ -64,7 +59,6 @@ def is_allowed(update: Update) -> bool:
     if user.id == OWNER_ID:
         return True
     return user.id in ALLOWED_USER_IDS
-
 
 def get_or_create_user(session, tg_user) -> User:
     user = session.query(User).filter_by(telegram_id=tg_user.id).first()
@@ -77,7 +71,6 @@ def get_or_create_user(session, tg_user) -> User:
         session.add(user)
         session.commit()
     return user
-
 
 def ensure_default_tasks(session):
     """Создаём несколько дефолтных задач, если их ещё нет."""
@@ -138,8 +131,6 @@ def ensure_default_tasks(session):
         session.add(inst)
     session.commit()
 
-
-
 async def carry_over_tasks(context: ContextTypes.DEFAULT_TYPE):
     """Переносит невыполненные задачи на завтра и помечает их HIGH."""
     today_date = get_today()
@@ -171,27 +162,22 @@ async def generate_recurring_tasks(context: ContextTypes.DEFAULT_TYPE):
     day = today.day
 
     with SessionLocal() as session:
-        templates = session.query(TaskTemplate).all()
+        # учитываем только активные шаблоны
+        templates = session.query(TaskTemplate).filter_by(active=True).all()
 
         for tmpl in templates:
             p = tmpl.periodicity
 
-            # daily
             if p == "daily":
                 should_create = True
-            # weekly: создаём раз в неделю в понедельник
             elif p == "weekly":
                 should_create = (weekday == 0)
-            # monthly: 1 число
             elif p == "monthly":
                 should_create = (day == 1)
-            # quarterly: 1 число января, апреля, июля, октября
             elif p == "quarterly":
                 should_create = (day == 1 and today.month in (1, 4, 7, 10))
-            # два раза в неделю: понедельник и четверг
             elif p == "twice_weekly":
                 should_create = (weekday in (0, 3))
-            # два раза в месяц: 1 и 15 числа
             elif p == "twice_monthly":
                 should_create = (day in (1, 15))
             else:
@@ -210,17 +196,14 @@ async def generate_recurring_tasks(context: ContextTypes.DEFAULT_TYPE):
 
         session.commit()
 
-
 def get_period_bounds_for_today():
     """Возвращает границы недели, месяца и года для сегодняшнего дня."""
     today = date.today()
 
-    # Неделя: понедельник - воскресенье
     weekday = today.weekday()  # 0 = понедельник
     week_start = today - timedelta(days=weekday)
     week_end = week_start + timedelta(days=6)
 
-    # Месяц: 1-е число - последнее
     month_start = today.replace(day=1)
     if today.month == 12:
         next_month_start = today.replace(year=today.year + 1, month=1, day=1)
@@ -228,12 +211,10 @@ def get_period_bounds_for_today():
         next_month_start = today.replace(month=today.month + 1, day=1)
     month_end = next_month_start - timedelta(days=1)
 
-    # Год: 1 января - 31 декабря
     year_start = today.replace(month=1, day=1)
     year_end = today.replace(month=12, day=31)
 
     return (week_start, week_end), (month_start, month_end), (year_start, year_end)
-
 
 # ---------- Хендлеры бота ----------
 
@@ -266,8 +247,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=MAIN_KEYBOARD,
     )
 
-
-
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         await update.message.reply_text(
@@ -284,7 +263,6 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Пришли название задачи.")
 
 async def add_task_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Обрабатываем только текстовые сообщения в контексте добавления задачи
     if not is_allowed(update):
         await update.message.reply_text(
             "Этот бот доступен только по приглашению.\n"
@@ -295,12 +273,10 @@ async def add_task_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     state = context.user_data.get("add_state")
     if not state:
-        # Не в процессе добавления задачи — игнорируем
         return
 
     text = update.message.text.strip()
 
-    # Шаг 1: получили название
     if state == "waiting_title":
         if not text:
             await update.message.reply_text("Название не может быть пустым. Пришли название задачи.")
@@ -311,7 +287,6 @@ async def add_task_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Сколько баллов за эту задачу? Пришли число.")
         return
 
-        # Шаг 2: получили баллы
     if state == "waiting_points":
         try:
             points = int(text)
@@ -322,7 +297,6 @@ async def add_task_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["add_points"] = points
         context.user_data["add_state"] = "waiting_period"
 
-        # Показываем кнопки периодичности
         keyboard = [
             [
                 InlineKeyboardButton("Единоразово", callback_data="period:once"),
@@ -346,9 +320,6 @@ async def add_task_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup,
         )
         return
-
-
-
 
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
@@ -374,6 +345,9 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("На сегодня дел нет! 🎉")
             return
 
+        lines = []
+        keyboard_rows = []
+
         for inst in instances:
             tmpl = inst.template
             prefix = "[HIGH] " if inst.priority == "high" else ""
@@ -389,42 +363,45 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f" у {inst.assigned_user.full_name or inst.assigned_user.username}"
                 )
 
-            text = (
-                f"{prefix}{tmpl.title}\n"
-                f"Баллы: {tmpl.points}\n"
-                f"Статус: {status_text}{performer}"
+            line = (
+                f"{inst.id}. {prefix}{tmpl.title} — "
+                f"{tmpl.points} баллов — {status_text}{performer}"
             )
+            lines.append(line)
 
             buttons = []
-
             if inst.status == "free":
                 buttons.append(
-                    [InlineKeyboardButton("Взять в работу", callback_data=f"take:{inst.id}")]
+                    InlineKeyboardButton("Взять", callback_data=f"take:{inst.id}")
                 )
             elif inst.status == "in_progress":
                 if inst.assigned_user and inst.assigned_user.telegram_id == update.effective_user.id:
                     buttons.append(
-                        [
-                            InlineKeyboardButton("Выполнено", callback_data=f"done:{inst.id}"),
-                            InlineKeyboardButton("Отказаться", callback_data=f"drop:{inst.id}"),
-                        ]
+                        InlineKeyboardButton("Выполнено", callback_data=f"done:{inst.id}")
+                    )
+                    buttons.append(
+                        InlineKeyboardButton("Отказаться", callback_data=f"drop:{inst.id}")
                     )
                 else:
                     buttons.append(
-                        [InlineKeyboardButton("Занято", callback_data="noop")]
+                        InlineKeyboardButton("Занято", callback_data="noop")
                     )
             elif inst.status == "done":
                 buttons.append(
-                    [InlineKeyboardButton("Выполнено ✅", callback_data="noop")]
+                    InlineKeyboardButton("Выполнено ✅", callback_data="noop")
                 )
 
-            reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
+            if buttons:
+                keyboard_rows.append(buttons)
 
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                reply_markup=reply_markup,
-            )
+        full_text = "Задачи на сегодня:\n" + "\n".join(lines)
+        reply_markup = InlineKeyboardMarkup(keyboard_rows) if keyboard_rows else None
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=full_text,
+            reply_markup=reply_markup,
+        )
 
 async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
@@ -457,6 +434,9 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("На сегодня у тебя нет задач 🙂")
             return
 
+        lines = []
+        keyboard_rows = []
+
         for inst in instances:
             tmpl = inst.template
             prefix = "[HIGH] " if inst.priority == "high" else ""
@@ -466,39 +446,41 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "done": "выполнена",
             }.get(inst.status, inst.status)
 
-            text = (
-                f"{inst.id}. {prefix}{tmpl.title}\n"
-                f"Баллы: {tmpl.points}\n"
-                f"Статус: {status_text}"
+            line = (
+                f"{inst.id}. {prefix}{tmpl.title} — "
+                f"{tmpl.points} баллов — {status_text}"
             )
+            lines.append(line)
 
             buttons = []
-
             if inst.status == "free":
                 buttons.append(
-                    [InlineKeyboardButton("Взять в работу", callback_data=f"take:{inst.id}")]
+                    InlineKeyboardButton("Взять", callback_data=f"take:{inst.id}")
                 )
             elif inst.status == "in_progress":
                 if inst.assigned_user_id == user.id:
                     buttons.append(
-                        [
-                            InlineKeyboardButton("Выполнено", callback_data=f"done:{inst.id}"),
-                            InlineKeyboardButton("Отказаться", callback_data=f"drop:{inst.id}"),
-                        ]
+                        InlineKeyboardButton("Выполнено", callback_data=f"done:{inst.id}")
+                    )
+                    buttons.append(
+                        InlineKeyboardButton("Отказаться", callback_data=f"drop:{inst.id}")
                     )
             elif inst.status == "done":
                 buttons.append(
-                    [InlineKeyboardButton("Выполнено ✅", callback_data="noop")]
+                    InlineKeyboardButton("Выполнено ✅", callback_data="noop")
                 )
 
-            reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
+            if buttons:
+                keyboard_rows.append(buttons)
 
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                reply_markup=reply_markup,
-            )
+        full_text = "Твои задачи на сегодня:\n" + "\n".join(lines)
+        reply_markup = InlineKeyboardMarkup(keyboard_rows) if keyboard_rows else None
 
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=full_text,
+            reply_markup=reply_markup,
+        )
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
@@ -546,7 +528,6 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Задача #{inst.id} выполнена! +{tmpl.points} баллов"
     )
 
-
 async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         await update.message.reply_text(
@@ -556,7 +537,6 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    """Показать задачи на сегодня с кнопками для повторного выполнения."""
     chat_id = update.effective_chat.id
     today_date = get_today()
 
@@ -571,6 +551,9 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not instances:
             await update.message.reply_text("На сегодня дел нет! 🎉")
             return
+
+        lines = []
+        keyboard_rows = []
 
         for inst in instances:
             tmpl = inst.template
@@ -587,27 +570,87 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f" у {inst.assigned_user.full_name or inst.assigned_user.username}"
                 )
 
-            text = (
-                f"{prefix}{tmpl.title}\n"
-                f"Баллы: {tmpl.points}\n"
-                f"Статус: {status_text}{performer}"
+            line = (
+                f"{inst.id}. {prefix}{tmpl.title} — "
+                f"{tmpl.points} баллов — {status_text}{performer}"
             )
+            lines.append(line)
 
             buttons = [
-                [
-                    InlineKeyboardButton(
-                        "Добавить ещё раз", callback_data=f"again:{inst.id}"
-                    )
-                ]
+                InlineKeyboardButton("Добавить ещё раз", callback_data=f"again:{inst.id}")
             ]
-            reply_markup = InlineKeyboardMarkup(buttons)
+            keyboard_rows.append(buttons)
 
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                reply_markup=reply_markup,
+        full_text = "Задачи на сегодня (для повторного выполнения):\n" + "\n".join(lines)
+        reply_markup = InlineKeyboardMarkup(keyboard_rows)
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=full_text,
+            reply_markup=reply_markup,
+        )
+
+async def list_templates(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update):
+        await update.message.reply_text(
+            "Этот бот доступен только по приглашению.\n"
+            f"Твой id: {update.effective_user.id}\n"
+            "Передай его владельцу, чтобы он добавил тебя."
+        )
+        return
+
+    with SessionLocal() as session:
+        templates = session.query(TaskTemplate).order_by(TaskTemplate.id).all()
+
+        if not templates:
+            await update.message.reply_text("Шаблонов задач пока нет.")
+            return
+
+        lines = []
+        for tmpl in templates:
+            status = "активен" if tmpl.active else "деактивирован"
+            lines.append(
+                f"{tmpl.id}. {tmpl.title} — {tmpl.periodicity}, {tmpl.points} баллов, {status}"
             )
 
+    await update.message.reply_text("Шаблоны задач:\n" + "\n".join(lines))
+
+async def deactivate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        await update.message.reply_text("Эта команда доступна только владельцу.")
+        return
+
+    with SessionLocal() as session:
+        templates = session.query(TaskTemplate).order_by(TaskTemplate.id).all()
+
+        if not templates:
+            await update.message.reply_text("Шаблонов задач пока нет.")
+            return
+
+        lines = []
+        keyboard_rows = []
+
+        for tmpl in templates:
+            status = "активен" if tmpl.active else "деактивирован"
+            lines.append(
+                f"{tmpl.id}. {tmpl.title} — {tmpl.periodicity}, {tmpl.points} баллов, {status}"
+            )
+
+            if tmpl.active:
+                text_btn = "Деактивировать"
+                cb_data = f"deactivate:{tmpl.id}"
+            else:
+                text_btn = "Активировать"
+                cb_data = f"activate:{tmpl.id}"
+
+            keyboard_rows.append(
+                [InlineKeyboardButton(text_btn, callback_data=cb_data)]
+            )
+
+    await update.message.reply_text(
+        "Управление шаблонами:\n" + "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(keyboard_rows),
+    )
 
 async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
@@ -627,7 +670,7 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # Обработка выбора периодичности при добавлении задачи
     if data.startswith("period:"):
-        period_code = data.split(":", 1)[1]  # once / daily / weekly / monthly / quarterly
+        period_code = data.split(":", 1)[1]
 
         title = context.user_data.get("add_title")
         points = context.user_data.get("add_points")
@@ -635,18 +678,16 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         if state != "waiting_period" or not title or points is None:
             await query.edit_message_text("Не удалось сохранить задачу. Попробуй ещё раз через /add.")
-            # Сбрасываем состояние, чтобы не висело
             context.user_data.pop("add_state", None)
             context.user_data.pop("add_title", None)
             context.user_data.pop("add_points", None)
             return
 
-        # Создаём задачу в БД
         with SessionLocal() as session:
             tmpl = TaskTemplate(
                 title=title,
                 description=None,
-                periodicity=period_code,  # "once", "daily", "weekly", "monthly", "quarterly"
+                periodicity=period_code,
                 points=points,
             )
             session.add(tmpl)
@@ -661,7 +702,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             session.add(inst)
             session.commit()
 
-        # Чистим состояние
         context.user_data.pop("add_state", None)
         context.user_data.pop("add_title", None)
         context.user_data.pop("add_points", None)
@@ -676,8 +716,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             "quarterly": "ежеквартально",
         }.get(period_code, period_code)
 
-
-
         await query.edit_message_text(
             f"Задача добавлена:\n"
             f"{title}\n"
@@ -686,12 +724,41 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    # Дальше — твоя существующая логика кнопок задач
+    # Управление шаблонами (активация/деактивация)
+    if data.startswith(("activate:", "deactivate:")):
+        if not is_owner(update):
+            await query.answer("Только владелец может менять шаблоны.", show_alert=True)
+            return
+
+        action, _, raw_id = data.partition(":")
+        try:
+            tmpl_id = int(raw_id)
+        except ValueError:
+            await query.edit_message_text("Некорректный id шаблона.")
+            return
+
+        with SessionLocal() as session:
+            tmpl = session.query(TaskTemplate).filter_by(id=tmpl_id).first()
+            if not tmpl:
+                await query.edit_message_text("Шаблон не найден.")
+                return
+
+            if action == "deactivate":
+                tmpl.active = False
+                status = "деактивирован"
+            else:
+                tmpl.active = True
+                status = "активирован"
+
+            session.commit()
+
+        await query.answer(f"Шаблон {status}.", show_alert=False)
+        return
+
     if data == "noop":
         return
 
     action, _, raw_id = data.partition(":")
-
     try:
         instance_id = int(raw_id)
     except ValueError:
@@ -707,7 +774,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         tmpl = inst.template
         user = get_or_create_user(session, user_tg)
 
-        # Взять в работу
         if action == "take":
             if inst.status != "free":
                 await query.edit_message_text("Задача уже занята или выполнена.")
@@ -723,7 +789,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
-        # Отказаться
         if action == "drop":
             if inst.status != "in_progress" or inst.assigned_user_id != user.id:
                 await query.edit_message_text("Вы не выполняете эту задачу.")
@@ -739,7 +804,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
-        # Выполнено
         if action == "done":
             if inst.status == "done":
                 await query.edit_message_text("Задача уже выполнена.")
@@ -769,7 +833,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
-        # Повторное выполнение (ещё раз)
         if action == "again":
             today_date = get_today()
             new_inst = TaskInstance(
@@ -800,8 +863,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
 
         await query.edit_message_text("Неизвестное действие.")
-
-
 async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         await update.message.reply_text(
@@ -833,9 +894,7 @@ async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("Рейтинг (всё время):\n" + "\n".join(lines))
 
-
 async def allow_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Только владелец может добавлять участников
     if not is_owner(update):
         await update.message.reply_text("Эта команда доступна только владельцу.")
         return
@@ -857,7 +916,6 @@ async def allow_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ALLOWED_USER_IDS.add(new_id)
     await update.message.reply_text(f"Пользователь {new_id} добавлен в дом ✅")
 
-
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         await update.message.reply_text(
@@ -867,7 +925,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    """Общая статистика по дому: неделя, месяц, год, всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
 
     with SessionLocal() as session:
@@ -922,7 +979,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text)
 
-
 async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         await update.message.reply_text(
@@ -932,7 +988,6 @@ async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    """Личная статистика пользователя: неделя, месяц, год, всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
     tg_user = update.effective_user
 
@@ -972,7 +1027,6 @@ async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Всё время: {total_all}"
     )
 
-
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         await update.message.reply_text(
@@ -982,7 +1036,6 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    """Лидеры за неделю, месяц, год и всё время."""
     (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
 
     with SessionLocal() as session:
@@ -1083,7 +1136,6 @@ async def send_daily_digest(context: ContextTypes.DEFAULT_TYPE):
             text="Ежедневный дайджест задач:\n" + "\n".join(lines),
         )
 
-
 async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
     """Итоги дня, а заодно недели/месяца/года, если сегодня конец периода."""
     chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
@@ -1152,7 +1204,6 @@ async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
 async def health(request):
     return web.Response(text="OK")
 
-
 async def run_http_server():
     app = web.Application()
     app.router.add_get("/", health)
@@ -1163,8 +1214,7 @@ async def run_http_server():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-
-# -------- Запуск бота + HTTP-сервер --------
+# -------- setup команд --------
 
 async def setup_commands(application):
     commands = [
@@ -1178,10 +1228,13 @@ async def setup_commands(application):
         BotCommand("leaderboard", "Лидеры по баллам"),
         BotCommand("score", "Рейтинг за всё время"),
         BotCommand("allow", "Добавить участника (только владелец)"),
+        BotCommand("list_templates", "Показать все шаблоны задач"),
+        BotCommand("deactivate", "Активировать/деактивировать шаблоны (владелец)"),
     ]
 
     await application.bot.set_my_commands(commands)
 
+# -------- Запуск бота + HTTP-сервер --------
 
 def main():
     init_db()
@@ -1199,20 +1252,20 @@ def main():
     application.add_handler(CommandHandler("leaderboard", leaderboard))
     application.add_handler(CommandHandler("allow", allow_user))
     application.add_handler(CommandHandler("mytasks", mytasks))
+    application.add_handler(CommandHandler("list_templates", list_templates))
+    application.add_handler(CommandHandler("deactivate", deactivate))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_task_flow))
     application.add_handler(CallbackQueryHandler(task_button_handler))
 
     job_queue = application.job_queue
 
-    # Перенос невыполненных задач в 23:50 по Москве
     job_queue.run_daily(
         carry_over_tasks,
         time=time(hour=23, minute=50, tzinfo=LOCAL_TZ),
         name="carry_over_tasks",
     )
 
-    # Ежедневный дайджест в 9:00 по Москве
     job_queue.run_daily(
         send_daily_digest,
         time=time(hour=9, minute=0, tzinfo=LOCAL_TZ),
@@ -1220,14 +1273,13 @@ def main():
         name="daily_digest",
     )
 
-    # Ежедневные итоги в 23:59 по Москве
     job_queue.run_daily(
         send_daily_summary,
         time=time(hour=23, minute=59, tzinfo=LOCAL_TZ),
         data={"chat_id": MAIN_CHAT_ID},
         name="daily_summary",
     )
-    # Генерация регулярных задач каждый день в 6:00 по Москве
+
     job_queue.run_daily(
         generate_recurring_tasks,
         time=time(hour=6, minute=0, tzinfo=LOCAL_TZ),
@@ -1237,11 +1289,10 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(run_http_server())
 
-    # ВАЖНО: перед запуском polling один раз настроить команды
     loop.run_until_complete(setup_commands(application))
 
     application.run_polling()
 
-
 if __name__ == "__main__":
     main()
+
