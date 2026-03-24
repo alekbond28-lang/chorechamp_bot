@@ -37,7 +37,6 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 LOCAL_TZ = ZoneInfo("Europe/Moscow")
 MAIN_CHAT_ID = None
 
-# укажи свой настоящий Telegram user_id
 OWNER_ID = 680630275
 ALLOWED_USER_IDS = {OWNER_ID}
 
@@ -73,12 +72,10 @@ def get_or_create_user(session, tg_user) -> User:
     return user
 
 def ensure_default_tasks(session):
-    """Создаём несколько дефолтных задач, если их ещё нет."""
     if session.query(TaskTemplate).count() > 0:
         return
 
     defaults = [
-        # title, description, periodicity, points
         ("Протереть столы", "Протереть обеденный стол, раковину, плиту", "daily", 1),
         ("Вынести мусор", "Вынести бытовой мусор из квартиры", "daily", 1),
         ("Посудомойка", "Загрузить и выгрузить", "daily", 2),
@@ -132,7 +129,6 @@ def ensure_default_tasks(session):
     session.commit()
 
 async def carry_over_tasks(context: ContextTypes.DEFAULT_TYPE):
-    """Переносит невыполненные задачи на завтра и помечает их HIGH."""
     today_date = get_today()
     tomorrow = today_date + timedelta(days=1)
 
@@ -156,13 +152,11 @@ async def carry_over_tasks(context: ContextTypes.DEFAULT_TYPE):
         session.commit()
 
 async def generate_recurring_tasks(context: ContextTypes.DEFAULT_TYPE):
-    """Ежедневная генерация инстансов по шаблонам."""
     today = get_today()
-    weekday = today.weekday()  # 0=понедельник
+    weekday = today.weekday()
     day = today.day
 
     with SessionLocal() as session:
-        # учитываем только активные шаблоны
         templates = session.query(TaskTemplate).filter_by(active=True).all()
 
         for tmpl in templates:
@@ -197,10 +191,9 @@ async def generate_recurring_tasks(context: ContextTypes.DEFAULT_TYPE):
         session.commit()
 
 def get_period_bounds_for_today():
-    """Возвращает границы недели, месяца и года для сегодняшнего дня."""
     today = date.today()
 
-    weekday = today.weekday()  # 0 = понедельник
+    weekday = today.weekday()
     week_start = today - timedelta(days=weekday)
     week_end = week_start + timedelta(days=6)
 
@@ -231,7 +224,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     MAIN_CHAT_ID = update.effective_chat.id
 
     with SessionLocal() as session:
-        user = get_or_create_user(session, update.effective_user)
+        get_or_create_user(session, update.effective_user)
         ensure_default_tasks(session)
 
     await update.message.reply_text(
@@ -371,25 +364,15 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             buttons = []
             if inst.status == "free":
-                buttons.append(
-                    InlineKeyboardButton("Взять", callback_data=f"take:{inst.id}")
-                )
+                buttons.append(InlineKeyboardButton("Взять", callback_data=f"take:{inst.id}"))
             elif inst.status == "in_progress":
                 if inst.assigned_user and inst.assigned_user.telegram_id == update.effective_user.id:
-                    buttons.append(
-                        InlineKeyboardButton("Выполнено", callback_data=f"done:{inst.id}")
-                    )
-                    buttons.append(
-                        InlineKeyboardButton("Отказаться", callback_data=f"drop:{inst.id}")
-                    )
+                    buttons.append(InlineKeyboardButton("Выполнено", callback_data=f"done:{inst.id}"))
+                    buttons.append(InlineKeyboardButton("Отказаться", callback_data=f"drop:{inst.id}"))
                 else:
-                    buttons.append(
-                        InlineKeyboardButton("Занято", callback_data="noop")
-                    )
+                    buttons.append(InlineKeyboardButton("Занято", callback_data="noop"))
             elif inst.status == "done":
-                buttons.append(
-                    InlineKeyboardButton("Выполнено ✅", callback_data="noop")
-                )
+                buttons.append(InlineKeyboardButton("Выполнено ✅", callback_data="noop"))
 
             if buttons:
                 keyboard_rows.append(buttons)
@@ -454,21 +437,13 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             buttons = []
             if inst.status == "free":
-                buttons.append(
-                    InlineKeyboardButton("Взять", callback_data=f"take:{inst.id}")
-                )
+                buttons.append(InlineKeyboardButton("Взять", callback_data=f"take:{inst.id}"))
             elif inst.status == "in_progress":
                 if inst.assigned_user_id == user.id:
-                    buttons.append(
-                        InlineKeyboardButton("Выполнено", callback_data=f"done:{inst.id}")
-                    )
-                    buttons.append(
-                        InlineKeyboardButton("Отказаться", callback_data=f"drop:{inst.id}")
-                    )
+                    buttons.append(InlineKeyboardButton("Выполнено", callback_data=f"done:{inst.id}"))
+                    buttons.append(InlineKeyboardButton("Отказаться", callback_data=f"drop:{inst.id}"))
             elif inst.status == "done":
-                buttons.append(
-                    InlineKeyboardButton("Выполнено ✅", callback_data="noop")
-                )
+                buttons.append(InlineKeyboardButton("Выполнено ✅", callback_data="noop"))
 
             if buttons:
                 keyboard_rows.append(buttons)
@@ -607,34 +582,12 @@ async def list_templates(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         lines = []
-        for tmpl in templates:
-            status = "активен" if tmpl.active else "деактивирован"
-            lines.append(
-                f"{tmpl.id}. {tmpl.title} — {tmpl.periodicity}, {tmpl.points} баллов, {status}"
-            )
-
-    await update.message.reply_text("Шаблоны задач:\n" + "\n".join(lines))
-
-async def deactivate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update):
-        await update.message.reply_text("Эта команда доступна только владельцу.")
-        return
-
-    with SessionLocal() as session:
-        templates = session.query(TaskTemplate).order_by(TaskTemplate.id).all()
-
-        if not templates:
-            await update.message.reply_text("Шаблонов задач пока нет.")
-            return
-
-        lines = []
         keyboard_rows = []
 
         for tmpl in templates:
             status = "активен" if tmpl.active else "деактивирован"
-            lines.append(
-                f"{tmpl.id}. {tmpl.title} — {tmpl.periodicity}, {tmpl.points} баллов, {status}"
-            )
+            line = f"{tmpl.id}. {tmpl.title} — {tmpl.periodicity}, {tmpl.points} баллов, {status}"
+            lines.append(line)
 
             if tmpl.active:
                 text_btn = "Деактивировать"
@@ -651,6 +604,10 @@ async def deactivate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Управление шаблонами:\n" + "\n".join(lines),
         reply_markup=InlineKeyboardMarkup(keyboard_rows),
     )
+
+async def deactivate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # оставляем просто обёрткой вокруг list_templates (для удобства)
+    await list_templates(update, context)
 
 async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
@@ -1090,7 +1047,6 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 async def send_daily_digest(context: ContextTypes.DEFAULT_TYPE):
-    """Ежедневный дайджест задач на сегодня в главный чат."""
     chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
     if chat_id is None:
         return
@@ -1137,7 +1093,6 @@ async def send_daily_digest(context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
-    """Итоги дня, а заодно недели/месяца/года, если сегодня конец периода."""
     chat_id = context.job.data.get("chat_id") if context.job and context.job.data else None
     if chat_id is None:
         return
@@ -1295,4 +1250,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
