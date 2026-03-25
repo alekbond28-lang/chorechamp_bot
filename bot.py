@@ -447,14 +447,13 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton("🕒 Выполнить", callback_data=f"done:{inst.id}"),
                     InlineKeyboardButton("↩️ Вернуть", callback_data=f"return:{inst.id}"),
                 ]
-            elif inst.status == "done"]:
+            elif inst.status == "done":
                 action_btns = [InlineKeyboardButton("✅ Выполнено", callback_data="noop")]
             else:
                 action_btns = [InlineKeyboardButton("🚫 Занято", callback_data="noop")]
 
             keyboard_rows.append([info_btn, *action_btns])
 
-        markup = InlineKeyboardMarkup(keyboard_rows)
 
     await context.bot.send_message(
         chat_id=chat_id,
