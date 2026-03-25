@@ -272,7 +272,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /mytasks — мои задачи на сегодня\n"
         "• /add — добавить новую задачу\n"
         "• /again — отметить, что задача сделана ещё раз\n"
-        "• /return — вернуть задачу в очередь\n"
         "• /my_stats — моя статистика\n"
         "• /leaderboard — лидеры по баллам",
         reply_markup=MAIN_KEYBOARD,
@@ -528,40 +527,6 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=chat_id,
         text="Задачи для повторного выполнения:",
-        reply_markup=markup,
-    )
-
-
-    chat_id = update.effective_chat.id
-    today_date = get_today()
-    tg_user = update.effective_user
-
-    with SessionLocal() as session:
-        user = get_or_create_user(session, tg_user)
-
-        instances = (
-            session.query(TaskInstance)
-            .join(TaskTemplate)
-            .filter(TaskInstance.date == today_date)
-            .filter(TaskInstance.status == "in_progress")
-            .filter(TaskInstance.assigned_user_id == user.id)
-            .all()
-        )
-
-    
-
-        keyboard_rows = []
-        for inst in instances:
-            info_text = format_task_button_text(inst)
-            info_btn = InlineKeyboardButton(info_text, callback_data="noop")
-            action_btn = InlineKeyboardButton("↩️ Вернуть", callback_data=f"return:{inst.id}")
-            keyboard_rows.append([info_btn, action_btn])
-
-        markup = InlineKeyboardMarkup(keyboard_rows)
-
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="Выбери задачу, которую хочешь вернуть в очередь:",
         reply_markup=markup,
     )
 
