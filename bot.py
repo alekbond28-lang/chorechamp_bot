@@ -75,17 +75,13 @@ def get_or_create_user(session, tg_user) -> User:
     return user
 
 def ensure_default_tasks(session):
-    def ensure_default_tasks(session):
     print("DEBUG ensure_default_tasks CALLED")
+
     if session.query(TaskTemplate).count() > 0:
         print("DEBUG ensure_default_tasks: templates already exist")
         return
+
     print("DEBUG ensure_default_tasks: creating defaults")
-    ...
-    session.commit()
-    print("DEBUG ensure_default_tasks: created", len(templates), "templates and instances")
-    if session.query(TaskTemplate).count() > 0:
-        return
 
     defaults = [
         ("Протереть столы", "Протереть обеденный стол, раковину, плиту", "daily", 1),
@@ -139,6 +135,9 @@ def ensure_default_tasks(session):
         )
         session.add(inst)
     session.commit()
+
+    print("DEBUG ensure_default_tasks: created", len(templates), "templates and instances")
+
 
 async def carry_over_tasks(context: ContextTypes.DEFAULT_TYPE):
     today_date = get_today()
