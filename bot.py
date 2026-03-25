@@ -247,7 +247,17 @@ def build_today_keyboard(instances, current_tg_id: int):
 
     return InlineKeyboardMarkup(keyboard_rows)
 
-get_today_instances_filtered
+def get_today_instances_filtered(session, today_date, filter_type: str, user: User | None):
+    q = (
+        session.query(TaskInstance)
+        .join(TaskTemplate)
+        .filter(TaskInstance.date == today_date)
+    )
+
+    # временно без фильтров и кастомной сортировки
+    q = q.order_by(TaskInstance.id)
+    return q.all()
+
 
 # ---------- Хендлеры бота ----------
 
