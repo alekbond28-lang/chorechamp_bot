@@ -389,9 +389,21 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = get_or_create_user(session, tg_user)
         instances = get_today_instances_filtered(session, today_date, "all", user)
 
-          # временно выводим сырое число задач
-        await update.message.reply_text(f"debug: найдено задач на сегодня: {len(instances)}")
-        # потом можно вернуть условие
+        if not instances:
+            await update.message.reply_text("На сегодня дел нет! 🎉")
+            return
+
+        header_row = build_today_header_keyboard("all")
+        list_markup = build_today_keyboard(instances, tg_user.id)
+        keyboard = header_row + list_markup.inline_keyboard
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="Задачи на сегодня:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
 
         header_row = build_today_header_keyboard("all")
         list_markup = build_today_keyboard(instances, tg_user.id)
