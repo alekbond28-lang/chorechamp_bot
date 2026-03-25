@@ -390,7 +390,7 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = get_or_create_user(session, tg_user)
         instances = get_today_instances_filtered(session, today_date, "all", user)
 
-        # НИКАКОГО debug тут больше нет
+        # ВАЖНО: тут только эта проверка, никаких debug-ответов больше нет
         if not instances:
             await update.message.reply_text("На сегодня дел нет! 🎉")
             return
@@ -404,6 +404,7 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="Задачи на сегодня:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
 
 async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
