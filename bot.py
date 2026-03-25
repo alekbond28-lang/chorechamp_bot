@@ -810,15 +810,26 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         elif action == "again":
             today_date = get_today()
+            # создаём НОВУЮ свободную задачу на сегодня по тому же шаблону
             new_inst = TaskInstance(
                 template_id=tmpl.id,
                 date=today_date,
-                status="done",
+                status="free",
                 priority="normal",
-                assigned_user_id=user.id,
-                done_by_user_id=user.id,
-                done_at=today_date,
+                assigned_user_id=None,
+                done_by_user_id=None,
+                done_at=None,
             )
+            session.add(new_inst)
+            session.commit()
+
+            await query.edit_message_text(
+                f"{tmpl.title}\n"
+                f"Баллы: {tmpl.points}\n"
+                "Задача добавлена в список задач на сегодня."
+            )
+            return
+
             session.add(new_inst)
             session.flush()
 
