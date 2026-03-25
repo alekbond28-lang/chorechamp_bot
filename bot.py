@@ -46,10 +46,13 @@ ACCESS_TEXT = (
     "Передай его владельцу, чтобы он добавил тебя."
 )
 
+# Панель быстрого доступа (клевер) — все актуальные команды
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton("/today"), KeyboardButton("/mytasks")],
         [KeyboardButton("/add"), KeyboardButton("/again")],
+        [KeyboardButton("/my_stats"), KeyboardButton("/leaderboard")],
+        [KeyboardButton("/list_templates")],
     ],
     resize_keyboard=True,
 )
@@ -495,7 +498,6 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for inst in instances:
             info_text = format_task_button_text(inst)
             info_btn = InlineKeyboardButton(info_text, callback_data="noop")
-            # новая логика: создаём новую свободную задачу
             action_btn = InlineKeyboardButton("🔁 Ещё раз", callback_data=f"again:{inst.id}")
             keyboard_rows.append([info_btn, action_btn])
 
@@ -526,14 +528,8 @@ async def list_templates(update: Update, context: ContextTypes.DEFAULT_TYPE):
             info_text = f"{tmpl.id}. {tmpl.title} — {tmpl.periodicity}, {tmpl.points} баллов, {status}"
             info_btn = InlineKeyboardButton(info_text, callback_data="noop")
 
-            # одна кнопка, которая будет переключать состояние
-            if tmpl.active:
-                btn_text = "🚫 Деактивировать"
-                cb_data = f"toggle_template:{tmpl.id}"
-            else:
-                btn_text = "✅ Активировать"
-                cb_data = f"toggle_template:{tmpl.id}"
-
+            btn_text = "🚫 Деактивировать" if tmpl.active else "✅ Активировать"
+            cb_data = f"toggle_template:{tmpl.id}"
             action_btn = InlineKeyboardButton(btn_text, callback_data=cb_data)
             keyboard_rows.append([info_btn, action_btn])
 
@@ -634,15 +630,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             tmpl.active = not tmpl.active
             session.commit()
 
-            status = "активен" if tmpl.active else "деактивирован"
-            info_text = f"{tmpl.id}. {tmpl.title} — {tmpl.periodicity}, {tmpl.points} баллов, {status}"
-            # меняем текст кнопок в строке
-            if tmpl.active:
-                btn_text = "🚫 Деактивировать"
-            else:
-                btn_text = "✅ Активировать"
-
-            # перестраиваем клавиатуру целиком по текущему сообщению
             templates = session.query(TaskTemplate).order_by(TaskTemplate.id).all()
             keyboard_rows = []
             for t in templates:
