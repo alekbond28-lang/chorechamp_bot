@@ -40,7 +40,10 @@ OWNER_ID = 680630275
 ALLOWED_USER_IDS = {OWNER_ID}
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [[KeyboardButton("/today"), KeyboardButton("/mytasks")]],
+    [
+        [KeyboardButton("/today"), KeyboardButton("/mytasks")],
+        [KeyboardButton("/add")],
+    ],
     resize_keyboard=True,
 )
 
@@ -234,7 +237,7 @@ def build_today_keyboard(instances, current_tg_id: int):
             action_btn = InlineKeyboardButton("❓ Взять", callback_data=f"take:{inst.id}")
         elif inst.status == "in_progress":
             if inst.assigned_user and inst.assigned_user.telegram_id == current_tg_id:
-                action_btn = InlineKeyboardButton("✅ Выполнено", callback_data=f"done:{inst.id}")
+                action_btn = InlineKeyboardButton("🕒 Выполнить", callback_data=f"done:{inst.id}")
             else:
                 action_btn = InlineKeyboardButton("🚫 Занято", callback_data="noop")
         else:  # done
@@ -412,7 +415,6 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("На сегодня у тебя нет задач 🙂")
             return
 
-        # для mytasks строим почти такую же клавиатуру, только логика действий чуть другая
         keyboard_rows = []
         for inst in instances:
             info_text = format_task_button_text(inst)
@@ -421,7 +423,7 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if inst.status == "free":
                 action_btn = InlineKeyboardButton("❓ Взять", callback_data=f"take:{inst.id}")
             elif inst.status == "in_progress" and inst.assigned_user_id == user.id:
-                action_btn = InlineKeyboardButton("✅ Выполнено", callback_data=f"done:{inst.id}")
+                action_btn = InlineKeyboardButton("🕒 Выполнить", callback_data=f"done:{inst.id}")
             elif inst.status == "done":
                 action_btn = InlineKeyboardButton("✅ Выполнено", callback_data="noop")
             else:
@@ -752,11 +754,16 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("Некорректный id задачи.")
         return
 
-    # для обновления списка today понадобится знать, это вообще сообщение из /today или нет
+    # это сообщение из /today?
     is_today_message = query.message and query.message.text.startswith("Задачи на сегодня")
 
     with SessionLocal() as session:
-        inst = session.query(TaskInstance).filter_by(id=instance_id).join(TaskTemplate).first()
+        inst = (
+            session.query(TaskInstance)
+            .filter_by(id=instance_id)
+            .join(TaskTemplate)
+            .first()
+        )
         if not inst:
             await query.edit_message_text("Задача не найдена.")
             return
@@ -835,7 +842,7 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.edit_message_text("Неизвестное действие.")
             return
 
-        # если это сообщение с /today — перерисовываем весь список в одном сообщении
+        # если это /today — перерисовываем весь список (левая колонка со статусом, правая кнопка)
         if is_today_message:
             today_date = get_today()
             instances = (
@@ -845,13 +852,12 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 .all()
             )
             markup = build_today_keyboard(instances, user_tg.id)
-            # текст всегда один, клавиатура пересобрана с новыми статусами и кнопками
             await query.edit_message_text(
                 text="Задачи на сегодня:",
                 reply_markup=markup,
             )
         else:
-            # если это не /today (например, mytasks/return), просто показываем итог по задаче
+            # не today — просто итог по задаче
             if inst.status == "free":
                 status_line = "⚪ свободна"
             elif inst.status == "in_progress":
