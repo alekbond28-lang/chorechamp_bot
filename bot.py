@@ -258,6 +258,15 @@ def get_today_instances_filtered(session, today_date, filter_type: str, user: Us
     q = q.order_by(TaskInstance.id)
     return q.all()
 
+def build_today_header_keyboard(current_filter: str) -> list[list[InlineKeyboardButton]]:
+    def label(code, text):
+        return f"[{text}]" if code == current_filter else text
+
+    return [[
+        InlineKeyboardButton(label("all", "All"), callback_data="filter:all"),
+        InlineKeyboardButton(label("my", "My tasks"), callback_data="filter:my"),
+        InlineKeyboardButton(label("done", "Done"), callback_data="filter:done"),
+    ]]
 
 # ---------- Хендлеры бота ----------
 
@@ -380,9 +389,9 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = get_or_create_user(session, tg_user)
         instances = get_today_instances_filtered(session, today_date, "all", user)
 
-        if not instances:
-            await update.message.reply_text("На сегодня дел нет! 🎉")
-            return
+          # временно выводим сырое число задач
+        await update.message.reply_text(f"debug: найдено задач на сегодня: {len(instances)}")
+        # потом можно вернуть условие
 
         header_row = build_today_header_keyboard("all")
         list_markup = build_today_keyboard(instances, tg_user.id)
