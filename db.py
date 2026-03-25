@@ -13,7 +13,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
-# Локальная SQLite-база в файле bot.db рядом с кодом
+# Локальная SQLite-база в файле bot.db рядом с кодом.
+# Если DATABASE_URL не задан, используем SQLite.
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bot.db")
 
 engine = create_engine(
@@ -25,6 +26,7 @@ engine = create_engine(
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
+
 
 
 
