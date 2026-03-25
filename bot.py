@@ -420,16 +420,22 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             info_text = format_task_button_text(inst)
             info_btn = InlineKeyboardButton(info_text, callback_data="noop")
 
+            # базовая кнопка действия
             if inst.status == "free":
-                action_btn = InlineKeyboardButton("❓ Взять", callback_data=f"take:{inst.id}")
+                action_btns = [InlineKeyboardButton("❓ Взять", callback_data=f"take:{inst.id}")]
             elif inst.status == "in_progress" and inst.assigned_user_id == user.id:
-                action_btn = InlineKeyboardButton("🕒 Выполнить", callback_data=f"done:{inst.id}")
+                # две кнопки: выполнить и вернуть
+                action_btns = [
+                    InlineKeyboardButton("🕒 Выполнить", callback_data=f"done:{inst.id}"),
+                    InlineKeyboardButton("↩️ Вернуть", callback_data=f"return:{inst.id}"),
+                ]
             elif inst.status == "done":
-                action_btn = InlineKeyboardButton("✅ Выполнено", callback_data="noop")
+                action_btns = [InlineKeyboardButton("✅ Выполнено", callback_data="noop")]
             else:
-                action_btn = InlineKeyboardButton("🚫 Занято", callback_data="noop")
+                action_btns = [InlineKeyboardButton("🚫 Занято", callback_data="noop")]
 
-            keyboard_rows.append([info_btn, action_btn])
+            # в строке: info + одна или две action-кнопки
+            keyboard_rows.append([info_btn, *action_btns])
 
         markup = InlineKeyboardMarkup(keyboard_rows)
 
@@ -438,6 +444,7 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="Твои задачи на сегодня:",
         reply_markup=markup,
     )
+
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
@@ -523,15 +530,6 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="Задачи для повторного выполнения:",
         reply_markup=markup,
     )
-
-async def return_task_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update):
-        await update.message.reply_text(
-            "Этот бот доступен только по приглашению.\n"
-            f"Твой id: {update.effective_user.id}\n"
-            "Передай его владельцу, чтобы он добавил тебя."
-        )
-        return
 
     chat_id = update.effective_chat.id
     today_date = get_today()
@@ -756,7 +754,8 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # это сообщение из /today?
     is_today_message = query.message and query.message.text.startswith("Задачи на сегодня")
-
+    is_mytasks_message = query.message and query.message.text.startswith("Твои задачи на сегодня:")
+    
     with SessionLocal() as session:
         inst = (
             session.query(TaskInstance)
@@ -843,6 +842,7 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
 
         # если это /today — перерисовываем весь список (левая колонка со статусом, правая кнопка)
+        
         if is_today_message:
             today_date = get_today()
             instances = (
@@ -856,8 +856,47 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 text="Задачи на сегодня:",
                 reply_markup=markup,
             )
+        elif is_mytasks_message:
+            today_date = get_today()
+            user = get_or_create_user(session, user_tg)
+            instances = (
+                session.query(TaskInstance)
+                .join(TaskTemplate)
+                .filter(TaskInstance.date == today_date)
+                .filter(
+                    (TaskInstance.assigned_user_id == user.id)
+                    | (TaskInstance.done_by_user_id == user.id)
+                )
+                .all()
+            )
+
+            keyboard_rows = []
+            for inst in instances:
+                info_text = format_task_button_text(inst)
+                info_btn = InlineKeyboardButton(info_text, callback_data="noop")
+
+                if inst.status == "free":
+                    action_btns = [InlineKeyboardButton("❓ Взять", callback_data=f"take:{inst.id}")]
+                elif inst.status == "in_progress" and inst.assigned_user_id == user.id:
+                    action_btns = [
+                        InlineKeyboardButton("🕒 Выполнить", callback_data=f"done:{inst.id}"),
+                        InlineKeyboardButton("↩️ Вернуть", callback_data=f"return:{inst.id}"),
+                    ]
+                elif inst.status == "done":
+                    action_btns = [InlineKeyboardButton("✅ Выполнено", callback_data="noop")]
+                else:
+                    action_btns = [InlineKeyboardButton("🚫 Занято", callback_data="noop")]
+
+                keyboard_rows.append([info_btn, *action_btns])
+
+            markup = InlineKeyboardMarkup(keyboard_rows)
+
+            await query.edit_message_text(
+                text="Твои задачи на сегодня:",
+                reply_markup=markup,
+            )
         else:
-            # не today — просто итог по задаче
+            # не today/mytasks — просто показать итог по задаче, как сейчас
             if inst.status == "free":
                 status_line = "⚪ свободна"
             elif inst.status == "in_progress":
@@ -1238,7 +1277,6 @@ def main():
     application.add_handler(CommandHandler("today", today))
     application.add_handler(CommandHandler("again", again))
     application.add_handler(CommandHandler("done", done))
-    application.add_handler(CommandHandler("return", return_task_cmd))
     application.add_handler(CommandHandler("score", score))
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("my_stats", my_stats))
