@@ -548,9 +548,7 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
             .all()
         )
 
-        if not instances:
-            await update.message.reply_text("У тебя нет задач в работе, которые можно вернуть 🙂")
-            return
+    
 
         keyboard_rows = []
         for inst in instances:
