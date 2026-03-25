@@ -1,5 +1,6 @@
-# db.py
 from datetime import date, datetime
+import os
+
 from sqlalchemy import (
     create_engine,
     Column,
@@ -12,9 +13,19 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
-DATABASE_URL = "sqlite:///bot.db"
+# По умолчанию локально используем файл bot.db в корне проекта.
+# На проде (Render) адрес БД можно переопределить через переменную окружения DATABASE_URL.
+# Примеры:
+#   sqlite:///./bot.db              — локальный файл в текущей директории
+#   sqlite:////var/data/bot.db      — файл на примонтированном диске /var/data
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bot.db")
 
-engine = create_engine(DATABASE_URL, echo=False, future=True)
+engine = create_engine(
+    DATABASE_URL,
+    echo=False,
+    future=True,
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 Base = declarative_base()
@@ -35,7 +46,7 @@ class TaskTemplate(Base):
     id = Column(Integer, primary_key=True)
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
-    periodicity = Column(String, nullable=False, default="daily")  # пока просто строка
+    periodicity = Column(String, nullable=False, default="daily")
     points = Column(Integer, nullable=False, default=1)
     active = Column(Boolean, default=True)
 
