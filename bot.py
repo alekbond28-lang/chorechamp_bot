@@ -254,16 +254,13 @@ def get_today_instances_filtered(session, today_date, filter_type: str, user: Us
         .filter(TaskInstance.date == today_date)
     )
 
-    if filter_type == "my":
-        if user is None:
-            return []
-        q = q.filter(TaskInstance.assigned_user_id == user.id)
-    elif filter_type == "done":
-        if user is None:
-            return []
-        q = q.filter(TaskInstance.status == "done", TaskInstance.done_by_user_id == user.id)
-    # "all" — без доп. фильтра
+    # ВРЕМЕННО отключаем фильтры my/done, чтобы проверить, что All работает
+    # if filter_type == "my":
+    #     ...
+    # elif filter_type == "done":
+    #     ...
 
+    # пока просто сортируем
     status_order = case(
         (TaskInstance.status == "free", 0),
         (TaskInstance.status == "in_progress", 1),
@@ -272,16 +269,6 @@ def get_today_instances_filtered(session, today_date, filter_type: str, user: Us
 
     q = q.order_by(status_order, TaskInstance.id)
     return q.all()
-
-def build_today_header_keyboard(current_filter: str) -> list[list[InlineKeyboardButton]]:
-    def label(code, text):
-        return f"[{text}]" if code == current_filter else text
-
-    return [[
-        InlineKeyboardButton(label("all", "All"), callback_data="filter:all"),
-        InlineKeyboardButton(label("my", "My tasks"), callback_data="filter:my"),
-        InlineKeyboardButton(label("done", "Done"), callback_data="filter:done"),
-    ]]
 
 # ---------- Хендлеры бота ----------
 
