@@ -338,9 +338,8 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("На сегодня дел нет! 🎉")
             return
 
+        # текст пока общий (для наглядности id), но главное — каждая задача = ряд из 2 кнопок
         lines = []
-        keyboard_rows = []
-
         for inst in instances:
             tmpl = inst.template
             prefix = "[HIGH] " if inst.priority == "high" else ""
@@ -349,36 +348,45 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "in_progress": "в работе",
                 "done": "выполнена",
             }.get(inst.status, inst.status)
-
             performer = ""
             if inst.status in ("in_progress", "done") and inst.assigned_user:
-                performer = (
-                    f" у {inst.assigned_user.full_name or inst.assigned_user.username}"
-                )
+                performer = f" у {inst.assigned_user.full_name or inst.assigned_user.username}"
 
-            line = (
-                f"{inst.id}. {prefix}{tmpl.title} — "
-                f"{tmpl.points} баллов — {status_text}{performer}"
-            )
+            line = f"{inst.id}. {prefix}{tmpl.title} — {tmpl.points} баллов — {status_text}{performer}"
             lines.append(line)
 
-            buttons = []
+        # строим клавиатуру: слева текст-кнопка с info, справа действие
+        keyboard_rows = []
+        for inst in instances:
+            tmpl = inst.template
+            prefix = "[HIGH] " if inst.priority == "high" else ""
+            status_text = {
+                "free": "свободна",
+                "in_progress": "в работе",
+                "done": "выполнена",
+            }.get(inst.status, inst.status)
+            performer = ""
+            if inst.status in ("in_progress", "done") and inst.assigned_user:
+                performer = f" у {inst.assigned_user.full_name or inst.assigned_user.username}"
+
+            info_text = f"{inst.id}. {prefix}{tmpl.title} — {tmpl.points} баллов — {status_text}{performer}"
+
+            info_btn = InlineKeyboardButton(info_text, callback_data="noop")
+
             if inst.status == "free":
-                buttons.append(InlineKeyboardButton("Взять", callback_data=f"take:{inst.id}"))
+                action_btn = InlineKeyboardButton("Взять", callback_data=f"take:{inst.id}")
             elif inst.status == "in_progress":
                 if inst.assigned_user and inst.assigned_user.telegram_id == update.effective_user.id:
-                    buttons.append(InlineKeyboardButton("Выполнено", callback_data=f"done:{inst.id}"))
-                    buttons.append(InlineKeyboardButton("Отказаться", callback_data=f"drop:{inst.id}"))
+                    action_btn = InlineKeyboardButton("Выполнено / Отказаться", callback_data=f"done_or_drop:{inst.id}")
                 else:
-                    buttons.append(InlineKeyboardButton("Занято", callback_data="noop"))
-            elif inst.status == "done":
-                buttons.append(InlineKeyboardButton("Выполнено ✅", callback_data="noop"))
+                    action_btn = InlineKeyboardButton("Занято", callback_data="noop")
+            else:  # done
+                action_btn = InlineKeyboardButton("Выполнено ✅", callback_data="noop")
 
-            if buttons:
-                keyboard_rows.append(buttons)
+            keyboard_rows.append([info_btn, action_btn])
 
         full_text = "Задачи на сегодня:\n" + "\n".join(lines)
-        reply_markup = InlineKeyboardMarkup(keyboard_rows) if keyboard_rows else None
+        reply_markup = InlineKeyboardMarkup(keyboard_rows)
 
         await context.bot.send_message(
             chat_id=chat_id,
@@ -418,8 +426,6 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         lines = []
-        keyboard_rows = []
-
         for inst in instances:
             tmpl = inst.template
             prefix = "[HIGH] " if inst.priority == "high" else ""
@@ -429,27 +435,36 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "done": "выполнена",
             }.get(inst.status, inst.status)
 
-            line = (
-                f"{inst.id}. {prefix}{tmpl.title} — "
-                f"{tmpl.points} баллов — {status_text}"
-            )
+            line = f"{inst.id}. {prefix}{tmpl.title} — {tmpl.points} баллов — {status_text}"
             lines.append(line)
 
-            buttons = []
+        keyboard_rows = []
+        for inst in instances:
+            tmpl = inst.template
+            prefix = "[HIGH] " if inst.priority == "high" else ""
+            status_text = {
+                "free": "свободна",
+                "in_progress": "в работе",
+                "done": "выполнена",
+            }.get(inst.status, inst.status)
+
+            info_text = f"{inst.id}. {prefix}{tmpl.title} — {tmpl.points} баллов — {status_text}"
+            info_btn = InlineKeyboardButton(info_text, callback_data="noop")
+
             if inst.status == "free":
-                buttons.append(InlineKeyboardButton("Взять", callback_data=f"take:{inst.id}"))
+                action_btn = InlineKeyboardButton("Взять", callback_data=f"take:{inst.id}")
             elif inst.status == "in_progress":
                 if inst.assigned_user_id == user.id:
-                    buttons.append(InlineKeyboardButton("Выполнено", callback_data=f"done:{inst.id}"))
-                    buttons.append(InlineKeyboardButton("Отказаться", callback_data=f"drop:{inst.id}"))
-            elif inst.status == "done":
-                buttons.append(InlineKeyboardButton("Выполнено ✅", callback_data="noop"))
+                    action_btn = InlineKeyboardButton("Выполнено / Отказаться", callback_data=f"done_or_drop:{inst.id}")
+                else:
+                    action_btn = InlineKeyboardButton("Занято", callback_data="noop")
+            else:
+                action_btn = InlineKeyboardButton("Выполнено ✅", callback_data="noop")
 
-            if buttons:
-                keyboard_rows.append(buttons)
+            keyboard_rows.append([info_btn, action_btn])
 
         full_text = "Твои задачи на сегодня:\n" + "\n".join(lines)
-        reply_markup = InlineKeyboardMarkup(keyboard_rows) if keyboard_rows else None
+        reply_markup = InlineKeyboardMarkup(keyboard_rows)
 
         await context.bot.send_message(
             chat_id=chat_id,
@@ -551,10 +566,9 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             lines.append(line)
 
-            buttons = [
-                InlineKeyboardButton("Добавить ещё раз", callback_data=f"again:{inst.id}")
-            ]
-            keyboard_rows.append(buttons)
+            info_btn = InlineKeyboardButton(line, callback_data="noop")
+            action_btn = InlineKeyboardButton("Добавить ещё раз", callback_data=f"again:{inst.id}")
+            keyboard_rows.append([info_btn, action_btn])
 
         full_text = "Задачи на сегодня (для повторного выполнения):\n" + "\n".join(lines)
         reply_markup = InlineKeyboardMarkup(keyboard_rows)
@@ -589,16 +603,13 @@ async def list_templates(update: Update, context: ContextTypes.DEFAULT_TYPE):
             line = f"{tmpl.id}. {tmpl.title} — {tmpl.periodicity}, {tmpl.points} баллов, {status}"
             lines.append(line)
 
+            info_btn = InlineKeyboardButton(line, callback_data="noop")
             if tmpl.active:
-                text_btn = "Деактивировать"
-                cb_data = f"deactivate:{tmpl.id}"
+                action_btn = InlineKeyboardButton("Деактивировать", callback_data=f"deactivate:{tmpl.id}")
             else:
-                text_btn = "Активировать"
-                cb_data = f"activate:{tmpl.id}"
+                action_btn = InlineKeyboardButton("Активировать", callback_data=f"activate:{tmpl.id}")
 
-            keyboard_rows.append(
-                [InlineKeyboardButton(text_btn, callback_data=cb_data)]
-            )
+            keyboard_rows.append([info_btn, action_btn])
 
     await update.message.reply_text(
         "Управление шаблонами:\n" + "\n".join(lines),
@@ -606,7 +617,6 @@ async def list_templates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def deactivate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # оставляем просто обёрткой вокруг list_templates (для удобства)
     await list_templates(update, context)
 
 async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -816,6 +826,31 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"{tmpl.title}\n"
                 f"Баллы: {tmpl.points}\n"
                 f"Статус: выполнена ещё раз {user.full_name or user.username}"
+            )
+            return
+
+        if action == "done_or_drop":
+            # простая реализация: считаем как "done"
+            if inst.status != "in_progress" or inst.assigned_user_id != user.id:
+                await query.edit_message_text("Вы не выполняете эту задачу.")
+                return
+
+            inst.status = "done"
+            inst.done_by_user_id = user.id
+            inst.done_at = get_today()
+
+            comp = Completion(
+                user_id=user.id,
+                task_instance_id=inst.id,
+                points=tmpl.points,
+            )
+            session.add(comp)
+            session.commit()
+
+            await query.edit_message_text(
+                f"{tmpl.title}\n"
+                f"Баллы: {tmpl.points}\n"
+                f"Статус: выполнена {user.full_name or user.username}"
             )
             return
 
