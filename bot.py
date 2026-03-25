@@ -1,9 +1,9 @@
 import os
 import asyncio
-from datetime import timedelta, time, date
+from datetime import timedelta, time, date, datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import case
+from sqlalchemy import case, func
 from telegram.ext import MessageHandler, filters
 from dotenv import load_dotenv
 from telegram import (
@@ -135,10 +135,13 @@ async def carry_over_tasks(context: ContextTypes.DEFAULT_TYPE):
     today_date = get_today()
     tomorrow = today_date + timedelta(days=1)
 
+    start = datetime.combine(today_date, time.min)
+    end = datetime.combine(today_date, time.max)
+
     with SessionLocal() as session:
         instances = (
             session.query(TaskInstance)
-            .filter(TaskInstance.date == today_date)
+            .filter(TaskInstance.date >= start, TaskInstance.date <= end)
             .filter(TaskInstance.status != "done")
             .all()
         )
@@ -248,27 +251,21 @@ def build_today_keyboard(instances, current_tg_id: int):
 
     return InlineKeyboardMarkup(keyboard_rows)
 
-from sqlalchemy import func  # вверху файла, рядом с другими импортами
-
 def get_today_instances_filtered(session, today_date, filter_type: str, user: User | None):
-    q = (
+    start = datetime.combine(today_date, time.min)
+    end = datetime.combine(today_date, time.max)
+
+    instances = (
         session.query(TaskInstance)
         .join(TaskTemplate)
-        .filter(TaskInstance.date == today_date)
+        .filter(TaskInstance.date >= start, TaskInstance.date <= end)
+        .order_by(TaskInstance.id)
+        .all()
     )
 
-    # DEBUG-строки вставлены СРАЗУ после q = (...)
-    print("DEBUG today_date", today_date)
-    print("DEBUG count_all", session.query(TaskInstance).count())
-    print("DEBUG today_count", q.count())
-    all_dates = session.query(TaskInstance.date).all()
-    print("DEBUG all dates", all_dates)
+    print("DEBUG today_date:", today_date, "instances_today:", [(i.id, i.date, i.status) for i in instances])
 
-    # пока без фильтров и кастомной сортировки
-    q = q.order_by(TaskInstance.id)
-    return q.all()
-
-
+    return instances
 
 def build_today_header_keyboard(current_filter: str) -> list[list[InlineKeyboardButton]]:
     def label(code, text):
@@ -398,12 +395,10 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today_date = get_today()
     await update.message.reply_text(f"debug today={today_date}")
 
-
     with SessionLocal() as session:
         user = get_or_create_user(session, tg_user)
         instances = get_today_instances_filtered(session, today_date, "all", user)
 
-        # ВАЖНО: тут только эта проверка, никаких debug-ответов больше нет
         if not instances:
             await update.message.reply_text("На сегодня дел нет! 🎉")
             return
@@ -418,7 +413,6 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
-
 async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         await update.message.reply_text(
@@ -432,13 +426,16 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today_date = get_today()
     tg_user = update.effective_user
 
+    start_dt = datetime.combine(today_date, time.min)
+    end_dt = datetime.combine(today_date, time.max)
+
     with SessionLocal() as session:
         user = get_or_create_user(session, tg_user)
 
         instances = (
             session.query(TaskInstance)
             .join(TaskTemplate)
-            .filter(TaskInstance.date == today_date)
+            .filter(TaskInstance.date >= start_dt, TaskInstance.date <= end_dt)
             .filter(
                 (TaskInstance.assigned_user_id == user.id)
                 | (TaskInstance.done_by_user_id == user.id)
@@ -469,6 +466,7 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             keyboard_rows.append([info_btn, *action_btns])
 
+        markup = InlineKeyboardMarkup(keyboard_rows)
 
     await context.bot.send_message(
         chat_id=chat_id,
@@ -534,11 +532,14 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     today_date = get_today()
 
+    start_dt = datetime.combine(today_date, time.min)
+    end_dt = datetime.combine(today_date, time.max)
+
     with SessionLocal() as session:
         instances = (
             session.query(TaskInstance)
             .join(TaskTemplate)
-            .filter(TaskInstance.date == today_date)
+            .filter(TaskInstance.date >= start_dt, TaskInstance.date <= end_dt)
             .filter(TaskInstance.status == "done")
             .all()
         )
@@ -561,6 +562,7 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="Задачи, которые можно сделать ещё раз сегодня:",
         reply_markup=markup,
     )
+
 async def list_templates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         await update.message.reply_text(
@@ -826,10 +828,13 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         if is_today_message:
             today_date = get_today()
+            start_dt = datetime.combine(today_date, time.min)
+            end_dt = datetime.combine(today_date, time.max)
+
             instances = (
                 session.query(TaskInstance)
                 .join(TaskTemplate)
-                .filter(TaskInstance.date == today_date)
+                .filter(TaskInstance.date >= start_dt, TaskInstance.date <= end_dt)
                 .all()
             )
             markup = build_today_keyboard(instances, user_tg.id)
@@ -839,11 +844,14 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
         elif is_mytasks_message:
             today_date = get_today()
+            start_dt = datetime.combine(today_date, time.min)
+            end_dt = datetime.combine(today_date, time.max)
+
             user = get_or_create_user(session, user_tg)
             instances = (
                 session.query(TaskInstance)
                 .join(TaskTemplate)
-                .filter(TaskInstance.date == today_date)
+                .filter(TaskInstance.date >= start_dt, TaskInstance.date <= end_dt)
                 .filter(
                     (TaskInstance.assigned_user_id == user.id)
                     | (TaskInstance.done_by_user_id == user.id)
@@ -996,6 +1004,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 name = u.full_name or u.username or str(u.telegram_id)
                 lines.append(f"{name}: {pts}")
             return f"{title}:\n" + "\n".join(lines)
+
 
         text = "\n\n".join(
             [
