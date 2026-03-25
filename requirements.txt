@@ -4,4 +4,5 @@ aiohttp==3.9.5
 urllib3==2.2.3
 setuptools==70.0.0
 SQLAlchemy==2.0.36
+psycopg2-binary
 
