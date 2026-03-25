@@ -255,9 +255,15 @@ def get_today_instances_filtered(session, today_date, filter_type: str, user: Us
         .filter(TaskInstance.date == today_date)
     )
 
+    # DEBUG-вывод
+    print("DEBUG today_date", today_date)
+    print("DEBUG count_all", session.query(TaskInstance).count())
+    print("DEBUG today_count", q.count())
+
     # пока без фильтров и кастомной сортировки
     q = q.order_by(TaskInstance.id)
     return q.all()
+
 
 def build_today_header_keyboard(current_filter: str) -> list[list[InlineKeyboardButton]]:
     def label(code, text):
@@ -385,6 +391,8 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     tg_user = update.effective_user
     today_date = get_today()
+    await update.message.reply_text(f"debug today={today_date}")
+
 
     with SessionLocal() as session:
         user = get_or_create_user(session, tg_user)
