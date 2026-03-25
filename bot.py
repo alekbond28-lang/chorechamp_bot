@@ -1307,6 +1307,10 @@ def main():
         name="generate_recurring_tasks",
     )
 
+    application.run_polling()
+
+
 if __name__ == "__main__":
     main()
+
 
