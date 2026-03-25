@@ -843,7 +843,7 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         # если это /today — перерисовываем весь список (левая колонка со статусом, правая кнопка)
              
-                if is_today_message:
+        if is_today_message:
             today_date = get_today()
             instances = (
                 session.query(TaskInstance)
