@@ -420,16 +420,22 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             info_text = format_task_button_text(inst)
             info_btn = InlineKeyboardButton(info_text, callback_data="noop")
 
+            # базовая кнопка действия
             if inst.status == "free":
-                action_btn = InlineKeyboardButton("❓ Взять", callback_data=f"take:{inst.id}")
+                action_btns = [InlineKeyboardButton("❓ Взять", callback_data=f"take:{inst.id}")]
             elif inst.status == "in_progress" and inst.assigned_user_id == user.id:
-                action_btn = InlineKeyboardButton("🕒 Выполнить", callback_data=f"done:{inst.id}")
+                # две кнопки: выполнить и вернуть
+                action_btns = [
+                    InlineKeyboardButton("🕒 Выполнить", callback_data=f"done:{inst.id}"),
+                    InlineKeyboardButton("↩️ Вернуть", callback_data=f"return:{inst.id}"),
+                ]
             elif inst.status == "done":
-                action_btn = InlineKeyboardButton("✅ Выполнено", callback_data="noop")
+                action_btns = [InlineKeyboardButton("✅ Выполнено", callback_data="noop")]
             else:
-                action_btn = InlineKeyboardButton("🚫 Занято", callback_data="noop")
+                action_btns = [InlineKeyboardButton("🚫 Занято", callback_data="noop")]
 
-            keyboard_rows.append([info_btn, action_btn])
+            # в строке: info + одна или две action-кнопки
+            keyboard_rows.append([info_btn, *action_btns])
 
         markup = InlineKeyboardMarkup(keyboard_rows)
 
@@ -438,6 +444,7 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="Твои задачи на сегодня:",
         reply_markup=markup,
     )
+
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
