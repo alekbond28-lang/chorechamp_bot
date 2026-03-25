@@ -390,6 +390,7 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = get_or_create_user(session, tg_user)
         instances = get_today_instances_filtered(session, today_date, "all", user)
 
+        # НИКАКОГО debug тут больше нет
         if not instances:
             await update.message.reply_text("На сегодня дел нет! 🎉")
             return
