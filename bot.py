@@ -2,6 +2,7 @@ import os
 import asyncio
 from datetime import timedelta, time, date
 from zoneinfo import ZoneInfo
+
 from sqlalchemy import case
 from telegram.ext import MessageHandler, filters
 from dotenv import load_dotenv
@@ -254,7 +255,7 @@ def get_today_instances_filtered(session, today_date, filter_type: str, user: Us
         .filter(TaskInstance.date == today_date)
     )
 
-    # временно без фильтров и кастомной сортировки
+    # пока без фильтров и кастомной сортировки
     q = q.order_by(TaskInstance.id)
     return q.all()
 
@@ -403,20 +404,6 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
-
-
-        header_row = build_today_header_keyboard("all")
-        list_markup = build_today_keyboard(instances, tg_user.id)
-
-        keyboard = header_row + list_markup.inline_keyboard
-
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="Задачи на сегодня:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-
 async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         await update.message.reply_text(
@@ -453,21 +440,18 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             info_text = format_task_button_text(inst)
             info_btn = InlineKeyboardButton(info_text, callback_data="noop")
 
-            # базовая кнопка действия
             if inst.status == "free":
                 action_btns = [InlineKeyboardButton("❓ Взять", callback_data=f"take:{inst.id}")]
             elif inst.status == "in_progress" and inst.assigned_user_id == user.id:
-                # две кнопки: выполнить и вернуть
                 action_btns = [
                     InlineKeyboardButton("🕒 Выполнить", callback_data=f"done:{inst.id}"),
                     InlineKeyboardButton("↩️ Вернуть", callback_data=f"return:{inst.id}"),
                 ]
-            elif inst.status == "done":
+            elif inst.status == "done"]:
                 action_btns = [InlineKeyboardButton("✅ Выполнено", callback_data="noop")]
             else:
                 action_btns = [InlineKeyboardButton("🚫 Занято", callback_data="noop")]
 
-            # в строке: info + одна или две action-кнопки
             keyboard_rows.append([info_btn, *action_btns])
 
         markup = InlineKeyboardMarkup(keyboard_rows)
@@ -477,7 +461,6 @@ async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="Твои задачи на сегодня:",
         reply_markup=markup,
     )
-
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
@@ -542,7 +525,7 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
             session.query(TaskInstance)
             .join(TaskTemplate)
             .filter(TaskInstance.date == today_date)
-            .filter(TaskInstance.status == "done")   # ← только выполненные
+            .filter(TaskInstance.status == "done")
             .all()
         )
 
@@ -564,8 +547,6 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="Задачи, которые можно сделать ещё раз сегодня:",
         reply_markup=markup,
     )
-
-
 async def list_templates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         await update.message.reply_text(
@@ -604,6 +585,7 @@ async def list_templates(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def deactivate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await list_templates(update, context)
+
 async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         user = update.effective_user
@@ -620,7 +602,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     data = query.data or ""
     user_tg = query.from_user
 
-    # выбор периодичности при добавлении задачи
     if data.startswith("period:"):
         period_code = data.split(":", 1)[1]
 
@@ -676,7 +657,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    # управление шаблонами
     if data.startswith(("activate:", "deactivate:")):
         if not is_owner(update):
             await query.answer("Только владелец может менять шаблоны.", show_alert=True)
@@ -710,7 +690,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if data == "noop":
         return
 
-    # return:<id> — вернуть задачу в очередь
     if data.startswith("return:"):
         _, _, raw_id = data.partition(":")
         try:
@@ -744,7 +723,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    # остальные действия: take/drop/done/again
     action, _, raw_id = data.partition(":")
     try:
         instance_id = int(raw_id)
@@ -752,9 +730,9 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("Некорректный id задачи.")
         return
 
-    # это сообщение из /today?
     is_today_message = query.message and query.message.text.startswith("Задачи на сегодня")
-    is_mytasks_message = query.message and query.message.text.startswith("Твои задачи на сегодня:")
+    is_mytasks_message = query.message and query.message.text.startswith("Твои задачи на сегодня")
+
     with SessionLocal() as session:
         inst = (
             session.query(TaskInstance)
@@ -809,7 +787,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         elif action == "again":
             today_date = get_today()
-            # создаём НОВУЮ свободную задачу на сегодня по тому же шаблону
             new_inst = TaskInstance(
                 template_id=tmpl.id,
                 date=today_date,
@@ -829,30 +806,10 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
-            session.add(new_inst)
-            session.flush()
-
-            comp = Completion(
-                user_id=user.id,
-                task_instance_id=new_inst.id,
-                points=tmpl.points,
-            )
-            session.add(comp)
-            session.commit()
-
-            await query.edit_message_text(
-                f"{tmpl.title}\n"
-                f"Баллы: {tmpl.points}\n"
-                f"Статус: выполнена ещё раз {user.full_name or user.username}"
-            )
-            return
-
         else:
             await query.edit_message_text("Неизвестное действие.")
             return
 
-        # если это /today — перерисовываем весь список (левая колонка со статусом, правая кнопка)
-             
         if is_today_message:
             today_date = get_today()
             instances = (
@@ -906,7 +863,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=markup,
             )
         else:
-            # не today/mytasks — просто показать итог по задаче
             if inst.status == "free":
                 status_line = "⚪ свободна"
             elif inst.status == "in_progress":
@@ -919,8 +875,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"Баллы: {tmpl.points}\n"
                 f"Статус: {status_line}"
             )
-
-
 
 # ---------- Статистика и сервисные вещи ----------
 
@@ -1241,8 +1195,6 @@ async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(chat_id=chat_id, text="\n\n".join(parts))
 
-# -------- Минимальный HTTP-сервер для Render --------
-
 async def health(request):
     return web.Response(text="OK")
 
@@ -1256,12 +1208,11 @@ async def run_http_server():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-# -------- setup команд --------
-
 async def setup_commands(application):
     commands = [
         BotCommand("start", "Описание бота и главное меню"),
         BotCommand("today", "Показать задачи на сегодня"),
+        BotCommand("mytasks", "Мои задачи на сегодня"),
         BotCommand("add", "Добавить новую задачу"),
         BotCommand("again", "Отметить, что задача сделана ещё раз"),
         BotCommand("my_stats", "Моя статистика"),
@@ -1274,8 +1225,6 @@ async def setup_commands(application):
     ]
 
     await application.bot.set_my_commands(commands)
-
-# -------- Запуск бота + HTTP-сервер --------
 
 def main():
     init_db()
@@ -1292,6 +1241,7 @@ def main():
     application.add_handler(CommandHandler("my_stats", my_stats))
     application.add_handler(CommandHandler("leaderboard", leaderboard))
     application.add_handler(CommandHandler("allow", allow_user))
+    application.add_handler(CommandHandler("mytasks", mytasks))
     application.add_handler(CommandHandler("list_templates", list_templates))
     application.add_handler(CommandHandler("deactivate", deactivate))
 
