@@ -248,6 +248,8 @@ def build_today_keyboard(instances, current_tg_id: int):
 
     return InlineKeyboardMarkup(keyboard_rows)
 
+from sqlalchemy import func  # вверху файла, рядом с другими импортами
+
 def get_today_instances_filtered(session, today_date, filter_type: str, user: User | None):
     q = (
         session.query(TaskInstance)
@@ -255,14 +257,17 @@ def get_today_instances_filtered(session, today_date, filter_type: str, user: Us
         .filter(TaskInstance.date == today_date)
     )
 
-    # DEBUG-вывод
+    # DEBUG-строки вставлены СРАЗУ после q = (...)
     print("DEBUG today_date", today_date)
     print("DEBUG count_all", session.query(TaskInstance).count())
     print("DEBUG today_count", q.count())
+    all_dates = session.query(TaskInstance.date).all()
+    print("DEBUG all dates", all_dates)
 
     # пока без фильтров и кастомной сортировки
     q = q.order_by(TaskInstance.id)
     return q.all()
+
 
 
 def build_today_header_keyboard(current_filter: str) -> list[list[InlineKeyboardButton]]:
