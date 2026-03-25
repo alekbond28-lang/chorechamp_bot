@@ -2,7 +2,7 @@ import os
 import asyncio
 from datetime import timedelta, time, date
 from zoneinfo import ZoneInfo
-
+from sqlalchemy import case
 from telegram.ext import MessageHandler, filters
 from dotenv import load_dotenv
 from telegram import (
@@ -247,6 +247,42 @@ def build_today_keyboard(instances, current_tg_id: int):
 
     return InlineKeyboardMarkup(keyboard_rows)
 
+def get_today_instances_filtered(session, today_date, filter_type: str, user: User | None):
+    q = (
+        session.query(TaskInstance)
+        .join(TaskTemplate)
+        .filter(TaskInstance.date == today_date)
+    )
+
+    if filter_type == "my":
+        if user is None:
+            return []
+        q = q.filter(TaskInstance.assigned_user_id == user.id)
+    elif filter_type == "done":
+        if user is None:
+            return []
+        q = q.filter(TaskInstance.status == "done", TaskInstance.done_by_user_id == user.id)
+    # "all" — без доп. фильтра
+
+    status_order = case(
+        (TaskInstance.status == "free", 0),
+        (TaskInstance.status == "in_progress", 1),
+        else_=2,
+    )
+
+    q = q.order_by(status_order, TaskInstance.id)
+    return q.all()
+
+def build_today_header_keyboard(current_filter: str) -> list[list[InlineKeyboardButton]]:
+    def label(code, text):
+        return f"[{text}]" if code == current_filter else text
+
+    return [[
+        InlineKeyboardButton(label("all", "All"), callback_data="filter:all"),
+        InlineKeyboardButton(label("my", "My tasks"), callback_data="filter:my"),
+        InlineKeyboardButton(label("done", "Done"), callback_data="filter:done"),
+    ]]
+
 # ---------- Хендлеры бота ----------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -361,27 +397,28 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.effective_chat.id
+    tg_user = update.effective_user
     today_date = get_today()
 
     with SessionLocal() as session:
-        instances = (
-            session.query(TaskInstance)
-            .join(TaskTemplate)
-            .filter(TaskInstance.date == today_date)
-            .all()
-        )
+        user = get_or_create_user(session, tg_user)
+        instances = get_today_instances_filtered(session, today_date, "all", user)
 
         if not instances:
             await update.message.reply_text("На сегодня дел нет! 🎉")
             return
 
-        markup = build_today_keyboard(instances, update.effective_user.id)
+        header_row = build_today_header_keyboard("all")
+        list_markup = build_today_keyboard(instances, tg_user.id)
+
+        keyboard = header_row + list_markup.inline_keyboard
 
     await context.bot.send_message(
         chat_id=chat_id,
         text="Задачи на сегодня:",
-        reply_markup=markup,
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
 
 async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
@@ -1228,7 +1265,6 @@ async def setup_commands(application):
     commands = [
         BotCommand("start", "Описание бота и главное меню"),
         BotCommand("today", "Показать задачи на сегодня"),
-        BotCommand("mytasks", "Мои задачи на сегодня"),
         BotCommand("add", "Добавить новую задачу"),
         BotCommand("again", "Отметить, что задача сделана ещё раз"),
         BotCommand("my_stats", "Моя статистика"),
@@ -1254,13 +1290,11 @@ def main():
     application.add_handler(CommandHandler("today", today))
     application.add_handler(CommandHandler("again", again))
     application.add_handler(CommandHandler("done", done))
-
     application.add_handler(CommandHandler("score", score))
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("my_stats", my_stats))
     application.add_handler(CommandHandler("leaderboard", leaderboard))
     application.add_handler(CommandHandler("allow", allow_user))
-    application.add_handler(CommandHandler("mytasks", mytasks))
     application.add_handler(CommandHandler("list_templates", list_templates))
     application.add_handler(CommandHandler("deactivate", deactivate))
 
