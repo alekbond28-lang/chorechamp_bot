@@ -508,11 +508,12 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
             session.query(TaskInstance)
             .join(TaskTemplate)
             .filter(TaskInstance.date == today_date)
+            .filter(TaskInstance.status == "done")   # ← только выполненные
             .all()
         )
 
         if not instances:
-            await update.message.reply_text("На сегодня дел нет! 🎉")
+            await update.message.reply_text("Сегодня ещё нет выполненных задач для повтора 🙂")
             return
 
         keyboard_rows = []
@@ -526,9 +527,10 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         chat_id=chat_id,
-        text="Задачи для повторного выполнения:",
+        text="Задачи, которые можно сделать ещё раз сегодня:",
         reply_markup=markup,
     )
+
 
 async def list_templates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
