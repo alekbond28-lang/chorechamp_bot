@@ -49,7 +49,7 @@ ACCESS_TEXT = (
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton("/today"), KeyboardButton("/mytasks")],
-        [KeyboardButton("/add")],
+        [KeyboardButton("/add"), KeyboardButton("/again")],
     ],
     resize_keyboard=True,
 )
@@ -269,9 +269,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /mytasks — мои задачи на сегодня\n"
         "• /add — добавить новую задачу\n"
         "• /again — отметить, что задача сделана ещё раз\n"
-        "• /return — вернуть задачу в очередь\n"
         "• /my_stats — моя статистика\n"
-        "• /leaderboard — лидеры по баллам",
+        "• /leaderboard — лидеры по баллам\n"
+        "• /list_templates — управление шаблонами",
         reply_markup=MAIN_KEYBOARD,
     )
 
@@ -468,7 +468,8 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показать задачи, которые сегодня в работе или уже выполнены (любым пользователем)."""
+    """Показать задачи, которые сегодня в работе или уже выполнены (любым пользователем),
+    и дать возможность добавить такую задачу ещё раз как новую свободную."""
     access_error = ensure_access(update)
     if access_error:
         await update.message.reply_text(access_error)
@@ -494,6 +495,7 @@ async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for inst in instances:
             info_text = format_task_button_text(inst)
             info_btn = InlineKeyboardButton(info_text, callback_data="noop")
+            # новая логика: создаём новую свободную задачу
             action_btn = InlineKeyboardButton("🔁 Ещё раз", callback_data=f"again:{inst.id}")
             keyboard_rows.append([info_btn, action_btn])
 
@@ -524,11 +526,15 @@ async def list_templates(update: Update, context: ContextTypes.DEFAULT_TYPE):
             info_text = f"{tmpl.id}. {tmpl.title} — {tmpl.periodicity}, {tmpl.points} баллов, {status}"
             info_btn = InlineKeyboardButton(info_text, callback_data="noop")
 
+            # одна кнопка, которая будет переключать состояние
             if tmpl.active:
-                action_btn = InlineKeyboardButton("🚫 Деактивировать", callback_data=f"deactivate:{tmpl.id}")
+                btn_text = "🚫 Деактивировать"
+                cb_data = f"toggle_template:{tmpl.id}"
             else:
-                action_btn = InlineKeyboardButton("✅ Активировать", callback_data=f"activate:{tmpl.id}")
+                btn_text = "✅ Активировать"
+                cb_data = f"toggle_template:{tmpl.id}"
 
+            action_btn = InlineKeyboardButton(btn_text, callback_data=cb_data)
             keyboard_rows.append([info_btn, action_btn])
 
         markup = InlineKeyboardMarkup(keyboard_rows)
@@ -606,13 +612,13 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    # управление шаблонами
-    if data.startswith(("activate:", "deactivate:")):
+    # управление шаблонами: одна кнопка toggle
+    if data.startswith("toggle_template:"):
         if not is_owner(update):
             await query.answer("Только владелец может менять шаблоны.", show_alert=True)
             return
 
-        action, _, raw_id = data.partition(":")
+        _, _, raw_id = data.partition(":")
         try:
             tmpl_id = int(raw_id)
         except ValueError:
@@ -625,10 +631,34 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await query.edit_message_text("Шаблон не найден.")
                 return
 
-            tmpl.active = (action == "activate")
+            tmpl.active = not tmpl.active
             session.commit()
 
-        await query.answer("Шаблон обновлён.", show_alert=False)
+            status = "активен" if tmpl.active else "деактивирован"
+            info_text = f"{tmpl.id}. {tmpl.title} — {tmpl.periodicity}, {tmpl.points} баллов, {status}"
+            # меняем текст кнопок в строке
+            if tmpl.active:
+                btn_text = "🚫 Деактивировать"
+            else:
+                btn_text = "✅ Активировать"
+
+            # перестраиваем клавиатуру целиком по текущему сообщению
+            templates = session.query(TaskTemplate).order_by(TaskTemplate.id).all()
+            keyboard_rows = []
+            for t in templates:
+                t_status = "активен" if t.active else "деактивирован"
+                row_info_text = f"{t.id}. {t.title} — {t.periodicity}, {t.points} баллов, {t_status}"
+                info_btn = InlineKeyboardButton(row_info_text, callback_data="noop")
+                row_btn_text = "🚫 Деактивировать" if t.active else "✅ Активировать"
+                action_btn = InlineKeyboardButton(row_btn_text, callback_data=f"toggle_template:{t.id}")
+                keyboard_rows.append([info_btn, action_btn])
+
+            markup = InlineKeyboardMarkup(keyboard_rows)
+
+        await query.edit_message_text(
+            text="Управление шаблонами:",
+            reply_markup=markup,
+        )
         return
 
     if data == "noop":
@@ -731,30 +761,24 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             session.commit()
 
         elif action == "again":
+            # НОВАЯ ЛОГИКА: создаём новый инстанс задачи на сегодня, свободный, без исполнителя
             today_date = get_today()
             new_inst = TaskInstance(
                 template_id=tmpl.id,
                 date=today_date,
-                status="done",
+                status="free",
                 priority="normal",
-                assigned_user_id=user_db.id,
-                done_by_user_id=user_db.id,
-                done_at=today_date,
+                assigned_user_id=None,
+                done_by_user_id=None,
+                done_at=None,
             )
             session.add(new_inst)
-            session.flush()
-
-            session.add(Completion(
-                user_id=user_db.id,
-                task_instance_id=new_inst.id,
-                points=tmpl.points,
-            ))
             session.commit()
 
             await query.edit_message_text(
                 f"{tmpl.title}\n"
                 f"Баллы: {tmpl.points}\n"
-                f"Статус: выполнена ещё раз {user_db.full_name or user_db.username}"
+                f"Создана новая свободная задача на сегодня."
             )
             return
 
@@ -829,34 +853,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # ---------- Статистика и сервисные вещи ----------
 
-async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    access_error = ensure_access(update)
-    if access_error:
-        await update.message.reply_text(access_error)
-        return
-
-    with SessionLocal() as session:
-        rows = (
-            session.query(User, Completion)
-            .join(Completion, Completion.user_id == User.id)
-            .all()
-        )
-        if not rows:
-            await update.message.reply_text("Пока никто не заработал баллы")
-            return
-
-        totals = {}
-        for user, comp in rows:
-            totals[user.id] = totals.get(user.id, 0) + comp.points
-
-        lines = []
-        for user_id, pts in sorted(totals.items(), key=lambda x: x[1], reverse=True):
-            user_db = session.get(User, user_id)
-            name = user_db.full_name or user_db.username or str(user_db.telegram_id)
-            lines.append(f"{name}: {pts} баллов")
-
-    await update.message.reply_text("Рейтинг (всё время):\n" + "\n".join(lines))
-
 async def allow_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(update):
         await update.message.reply_text("Эта команда доступна только владельцу.")
@@ -878,65 +874,6 @@ async def allow_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ALLOWED_USER_IDS.add(new_id)
     await update.message.reply_text(f"Пользователь {new_id} добавлен в дом ✅")
-
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    access_error = ensure_access(update)
-    if access_error:
-        await update.message.reply_text(access_error)
-        return
-
-    (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
-
-    with SessionLocal() as session:
-        rows = (
-            session.query(User, Completion)
-            .join(Completion, Completion.user_id == User.id)
-            .all()
-        )
-
-        if not rows:
-            await update.message.reply_text("Пока никто не заработал баллы")
-            return
-
-        totals_all = {}
-        totals_week = {}
-        totals_month = {}
-        totals_year = {}
-
-        for user, comp in rows:
-            day = comp.created_at.date()
-            uid = user.id
-            pts = comp.points
-
-            totals_all[uid] = totals_all.get(uid, 0) + pts
-
-            if week_start <= day <= week_end:
-                totals_week[uid] = totals_week.get(uid, 0) + pts
-            if month_start <= day <= month_end:
-                totals_month[uid] = totals_month.get(uid, 0) + pts
-            if year_start <= day <= year_end:
-                totals_year[uid] = totals_year.get(uid, 0) + pts
-
-        def format_block(title, data_dict):
-            if not data_dict:
-                return f"{title}: пока нет баллов"
-            lines = []
-            for uid, pts in sorted(data_dict.items(), key=lambda x: x[1], reverse=True):
-                u = session.get(User, uid)
-                name = u.full_name or u.username or str(u.telegram_id)
-                lines.append(f"{name}: {pts}")
-            return f"{title}:\n" + "\n".join(lines)
-
-        text = "\n\n".join(
-            [
-                format_block("Неделя", totals_week),
-                format_block("Месяц", totals_month),
-                format_block("Год", totals_year),
-                format_block("Всё время", totals_all),
-            ]
-        )
-
-    await update.message.reply_text(text)
 
 async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     access_error = ensure_access(update)
@@ -1079,50 +1016,50 @@ async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
             .all()
         )
 
-        if not rows:
-            await context.bot.send_message(chat_id=chat_id, text="Сегодня никто не заработал баллы.")
-            return
+    if not rows:
+        await context.bot.send_message(chat_id=chat_id, text="Сегодня никто не заработал баллы.")
+        return
 
-        totals_today = {}
+    totals_today = {}
+    for user, comp in rows:
+        if comp.created_at.date() == today:
+            totals_today[user.id] = totals_today.get(user.id, 0) + comp.points
+
+    def block_for_period(title, start, end):
+        totals = {}
         for user, comp in rows:
-            if comp.created_at.date() == today:
-                totals_today[user.id] = totals_today.get(user.id, 0) + comp.points
+            d = comp.created_at.date()
+            if start <= d <= end:
+                totals[user.id] = totals.get(user.id, 0) + comp.points
+        if not totals:
+            return f"{title}: пока нет баллов"
+        lines = []
+        for uid, pts in sorted(totals.items(), key=lambda x: x[1], reverse=True)[:3]:
+            u = next(u for u, c in rows if u.id == uid)
+            name = u.full_name or u.username or str(u.telegram_id)
+            lines.append(f"{name}: {pts}")
+        return f"{title}:\n" + "\n".join(lines)
 
-        def block_for_period(title, start, end):
-            totals = {}
-            for user, comp in rows:
-                d = comp.created_at.date()
-                if start <= d <= end:
-                    totals[user.id] = totals.get(user.id, 0) + comp.points
-            if not totals:
-                return f"{title}: пока нет баллов"
-            lines = []
-            for uid, pts in sorted(totals.items(), key=lambda x: x[1], reverse=True)[:3]:
-                u = session.get(User, uid)
-                name = u.full_name or u.username or str(u.telegram_id)
-                lines.append(f"{name}: {pts}")
-            return f"{title}:\n" + "\n".join(lines)
+    parts = []
 
-        parts = []
+    if totals_today:
+        day_lines = []
+        for uid, pts in sorted(totals_today.items(), key=lambda x: x[1], reverse=True)[:3]:
+            u = next(u for u, c in rows if u.id == uid)
+            name = u.full_name or u.username or str(u.telegram_id)
+            day_lines.append(f"{name}: {pts}")
+        parts.append("Итоги дня:\n" + "\n".join(day_lines))
+    else:
+        parts.append("Итоги дня: никто не заработал баллы.")
 
-        if totals_today:
-            day_lines = []
-            for uid, pts in sorted(totals_today.items(), key=lambda x: x[1], reverse=True)[:3]:
-                u = session.get(User, uid)
-                name = u.full_name or u.username or str(u.telegram_id)
-                day_lines.append(f"{name}: {pts}")
-            parts.append("Итоги дня:\n" + "\n".join(day_lines))
-        else:
-            parts.append("Итоги дня: никто не заработал баллы.")
+    if today == week_end:
+        parts.append(block_for_period("Итоги недели", week_start, week_end))
 
-        if today == week_end:
-            parts.append(block_for_period("Итоги недели", week_start, week_end))
+    if today == month_end:
+        parts.append(block_for_period("Итоги месяца", month_start, month_end))
 
-        if today == month_end:
-            parts.append(block_for_period("Итоги месяца", month_start, month_end))
-
-        if today == year_end:
-            parts.append(block_for_period("Итоги года", year_start, year_end))
+    if today == year_end:
+        parts.append(block_for_period("Итоги года", year_start, year_end))
 
     await context.bot.send_message(chat_id=chat_id, text="\n\n".join(parts))
 
@@ -1150,16 +1087,11 @@ async def setup_commands(application):
         BotCommand("mytasks", "Мои задачи на сегодня"),
         BotCommand("add", "Добавить новую задачу"),
         BotCommand("again", "Отметить, что задача сделана ещё раз"),
-        BotCommand("return", "Вернуть задачу в очередь"),
         BotCommand("my_stats", "Моя статистика"),
-        BotCommand("stats", "Статистика по дому"),
         BotCommand("leaderboard", "Лидеры по баллам"),
-        BotCommand("score", "Рейтинг за всё время"),
+        BotCommand("list_templates", "Показать и управлять шаблонами задач"),
         BotCommand("allow", "Добавить участника (только владелец)"),
-        BotCommand("list_templates", "Показать все шаблоны задач"),
-        BotCommand("deactivate", "Активировать/деактивировать шаблоны (владелец)"),
     ]
-
     await application.bot.set_my_commands(commands)
 
 # -------- Запуск бота + HTTP-сервер --------
@@ -1174,8 +1106,6 @@ def main():
     application.add_handler(CommandHandler("today", today))
     application.add_handler(CommandHandler("again", again))
     application.add_handler(CommandHandler("done", done))
-    application.add_handler(CommandHandler("score", score))
-    application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("my_stats", my_stats))
     application.add_handler(CommandHandler("leaderboard", leaderboard))
     application.add_handler(CommandHandler("allow", allow_user))
