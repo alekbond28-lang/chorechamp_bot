@@ -1310,7 +1310,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(run_http_server())
 
-        loop.run_until_complete(setup_commands(application))
+    loop.run_until_complete(setup_commands(application))
 
     # application.run_polling()
 
