@@ -247,28 +247,7 @@ def build_today_keyboard(instances, current_tg_id: int):
 
     return InlineKeyboardMarkup(keyboard_rows)
 
-def get_today_instances_filtered(session, today_date, filter_type: str, user: User | None):
-    q = (
-        session.query(TaskInstance)
-        .join(TaskTemplate)
-        .filter(TaskInstance.date == today_date)
-    )
-
-    # ВРЕМЕННО отключаем фильтры my/done, чтобы проверить, что All работает
-    # if filter_type == "my":
-    #     ...
-    # elif filter_type == "done":
-    #     ...
-
-    # пока просто сортируем
-    status_order = case(
-        (TaskInstance.status == "free", 0),
-        (TaskInstance.status == "in_progress", 1),
-        else_=2,
-    )
-
-    q = q.order_by(status_order, TaskInstance.id)
-    return q.all()
+get_today_instances_filtered
 
 # ---------- Хендлеры бота ----------
 
