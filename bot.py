@@ -45,7 +45,6 @@ if not BOT_TOKEN:
 LOCAL_TZ = ZoneInfo("Europe/Moscow")
 MAIN_CHAT_ID = None
 
-# этот OWNER_ID остаётся супер-админом, но дальше домами владеют is_house_owner
 OWNER_ID = 680630275
 
 ACCESS_TEXT = (
@@ -220,7 +219,6 @@ def build_today_keyboard(instances, current_tg_id: int):
     return InlineKeyboardMarkup(keyboard_rows)
 
 def build_today_view(session, tab: str, tg_user) -> tuple[str, InlineKeyboardMarkup]:
-    """tab: 'free' | 'my' | 'done'"""
     user, house = user_in_house(session, tg_user)
     if not house:
         filter_row = [
@@ -876,6 +874,91 @@ async def webhook_handler(request):
     return web.Response(text="OK")
 
 
+# ---------- Текстовый роутер для /add и редактирования шаблонов ----------
+
+async def handle_template_edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    tmpl_id = context.user_data.get("edit_template_id")
+    field = context.user_data.get("edit_template_field")
+
+    if not tmpl_id or not field:
+        await update.message.reply_text(
+            "Не удалось определить, что редактировать. Попробуй через /list_templates ещё раз."
+        )
+        return
+
+    with SessionLocal() as session:
+        tg_user = update.effective_user
+        user, house = user_in_house(session, tg_user)
+        if not house:
+            await update.message.reply_text("Сначала нужно быть в доме.")
+            return
+
+        tmpl = (
+            session.query(TaskTemplate)
+            .filter_by(id=tmpl_id, house_id=house.id, deleted=False)
+            .first()
+        )
+        if not tmpl:
+            await update.message.reply_text("Шаблон не найден.")
+            return
+
+        if field == "title":
+            old = tmpl.title
+            if not text:
+                await update.message.reply_text("Название не может быть пустым. Пришли новое название.")
+                return
+            tmpl.title = text
+            session.commit()
+            await update.message.reply_text(
+                f"Название шаблона обновлено ✅\n\nБыло: «{old}»\nСтало: «{tmpl.title}»"
+            )
+
+        elif field == "points":
+            try:
+                new_points = int(text)
+            except ValueError:
+                await update.message.reply_text("Баллы должны быть числом. Пришли число, например: 5")
+                return
+            old = tmpl.points
+            tmpl.points = new_points
+            session.commit()
+            await update.message.reply_text(
+                f"Баллы обновлены ✅\n\nБыло: {old}\nСтало: {tmpl.points}"
+            )
+
+        elif field == "start_date":
+            try:
+                new_date = date.fromisoformat(text)
+            except ValueError:
+                await update.message.reply_text(
+                    "Не удалось распознать дату. Пришли в формате ГГГГ-ММ-ДД, например: 2026-04-01."
+                )
+                return
+            old = tmpl.start_date
+            tmpl.start_date = new_date
+            session.commit()
+            old_str = old.isoformat() if old else "не задана"
+            await update.message.reply_text(
+                f"Дата начала обновлена ✅\n\nБыло: {old_str}\nСтало: {tmpl.start_date.isoformat()}"
+            )
+
+        else:
+            await update.message.reply_text("Это поле пока нельзя редактировать таким образом.")
+            return
+
+    context.user_data.pop("edit_template_id", None)
+    context.user_data.pop("edit_template_field", None)
+
+
+async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("edit_template_id") and context.user_data.get("edit_template_field"):
+        await handle_template_edit_text(update, context)
+        return
+
+    await add_task_flow(update, context)
+
+
 # ---------- CallbackQuery (house + задачи + шаблоны) ----------
 
 async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1385,7 +1468,7 @@ async def main():
     application.add_handler(CommandHandler("allow", allow_user))
     application.add_handler(CommandHandler("list_templates", list_templates))
 
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_task_flow))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
     application.add_handler(CallbackQueryHandler(task_button_handler))
 
     job_queue = application.job_queue
