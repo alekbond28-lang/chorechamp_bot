@@ -14,12 +14,16 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
-# 1. URL из переменной окружения Render
+# -------- URL БД из переменной окружения Render --------
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# 2. Engine + Session
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL не задан в переменных окружения")
+
+# Engine + Session
 engine = create_engine(
     DATABASE_URL,
     echo=False,
@@ -31,7 +35,9 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
-# 3. Модели
+
+# -------- Модели --------
+
 class User(Base):
     __tablename__ = "users"
 
@@ -60,7 +66,7 @@ class TaskInstance(Base):
     id = Column(Integer, primary_key=True)
     template_id = Column(Integer, ForeignKey("task_templates.id"), nullable=False)
     date = Column(Date, nullable=False, index=True)
-    status = Column(String, nullable=False, default="free")
+    status = Column(String, nullable=False, default="free")   # free/in_progress/done
     priority = Column(String, nullable=False, default="normal")
 
     assigned_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -84,6 +90,8 @@ class Completion(Base):
     user = relationship("User")
     task_instance = relationship("TaskInstance")
 
+
+# -------- Инициализация БД --------
 
 def init_db():
     print("Init DB, URL:", DATABASE_URL)
