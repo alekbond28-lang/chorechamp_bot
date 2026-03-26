@@ -1,31 +1,21 @@
-from datetime import date, datetime
 import os
+from sqlalchemy import create_engine
 
-from sqlalchemy import (
-    create_engine,
-    Column,
-    Integer,
-    String,
-    Date,
-    DateTime,
-    Boolean,
-    ForeignKey,
-)
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+# Render передаст полный URL в DATABASE_URL
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Локальная SQLite-база в файле bot.db рядом с кодом.
-# Если DATABASE_URL не задан, используем SQLite.
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bot.db")
+# Автоматическая конвертация postgres:// → postgresql:// для SQLAlchemy
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 engine = create_engine(
-    DATABASE_URL,
-    echo=False,
+    DATABASE_URL, 
+    echo=False, 
     future=True,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    pool_pre_ping=True,  # Для Render важно!
+    pool_recycle=300,
 )
-
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-Base = declarative_base()
 
 
 
