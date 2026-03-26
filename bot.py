@@ -15,6 +15,7 @@ from telegram import (
 )
 from telegram.ext import (
     ApplicationBuilder,
+    Application,
     CommandHandler,
     ContextTypes,
     CallbackQueryHandler,
@@ -1091,11 +1092,28 @@ async def setup_commands(application):
 
 # -------- Запуск бота + HTTP-сервер --------
 
-def main():
+application: Application  # глобально, чтобы был доступен в webhook_handler
+
+
+async def webhook_handler(request):
+    data = await request.json()
+    update = Update.de_json(data, application.bot)
+    await application.process_update(update)
+    return web.Response(text="OK")
+
+
+async def main():
+    global application, MAIN_CHAT_ID
+
     init_db()
 
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    application = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .build()
+    )
 
+    # Хендлеры команд
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("add", add_task))
     application.add_handler(CommandHandler("today", today))
@@ -1107,40 +1125,68 @@ def main():
     application.add_handler(CommandHandler("mytasks", mytasks))
     application.add_handler(CommandHandler("list_templates", list_templates))
 
+    # Хендлеры сообщений и callback'ов
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_task_flow))
     application.add_handler(CallbackQueryHandler(task_button_handler))
 
+    # Планировщик
     job_queue = application.job_queue
-
     job_queue.run_daily(
         carry_over_tasks,
         time=time(hour=23, minute=50, tzinfo=LOCAL_TZ),
         name="carry_over_tasks",
     )
-
     job_queue.run_daily(
         send_daily_digest,
         time=time(hour=9, minute=0, tzinfo=LOCAL_TZ),
         data={"chat_id": MAIN_CHAT_ID},
         name="daily_digest",
     )
-
     job_queue.run_daily(
         send_daily_summary,
         time=time(hour=23, minute=59, tzinfo=LOCAL_TZ),
         data={"chat_id": MAIN_CHAT_ID},
         name="daily_summary",
     )
-
     job_queue.run_daily(
         generate_recurring_tasks,
         time=time(hour=6, minute=0, tzinfo=LOCAL_TZ),
         name="generate_recurring_tasks",
     )
 
-    loop = asyncio.get_event_loop()
-    loop.create_task(run_http_server())
-    loop.run_until_complete(setup_commands(application))
+    # Настроим команды в меню
+    await setup_commands(application)
+
+    # Webhook URL для Render
+    app_name = os.getenv("RENDER_EXTERNAL_HOSTNAME")  # Render сам проставляет
+    if app_name:
+        base_url = f"https://{app_name}"
+    else:
+        base_url = os.getenv("WEBHOOK_BASE_URL", "https://your-app.onrender.com")  # на всякий случай
+
+    webhook_path = "/webhook"
+    webhook_url = f"{base_url}{webhook_path}"
+
+    # Ставим webhook
+    await application.bot.set_webhook(url=webhook_url)
+
+    # Поднимаем HTTP-сервер
+    app = web.Application()
+    app.router.add_post(webhook_path, webhook_handler)
+    app.router.add_get("/", health)  # твой health()
+
+    port = int(os.environ.get("PORT", 10000))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+    print(f"Webhook set to: {webhook_url}")
+    print(f"Server started on port {port}")
+
+    # Держим процесс живым
+    await asyncio.Event().wait()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
