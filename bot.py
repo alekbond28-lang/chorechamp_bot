@@ -91,60 +91,6 @@ def get_or_create_user(session, tg_user) -> User:
         session.commit()
     return user
 
-def ensure_default_tasks(session):
-    if session.query(TaskTemplate).count() > 0:
-        return
-
-    defaults = [
-        ("Протереть столы", "Протереть обеденный стол, раковину, плиту", "daily", 1),
-        ("Вынести мусор", "Вынести бытовой мусор из квартиры", "daily", 1),
-        ("Посудомойка", "Загрузить и выгрузить", "daily", 2),
-        ("Включить робот пылесос", "Почистить бак до и после, помыть тряпку", "daily", 2),
-        ("Загрузить/разложить стирку", "Поставить стирку и разложить белье", "daily", 2),
-        ("Покормить кошку и поменять воду", None, "daily", 1),
-
-        ("Разобрать вещи в комнате", "Разложить одежду и вещи по местам", "weekly", 3),
-        ("Уборка туалета", "Почистить унитаз", "weekly", 4),
-        ("Уборка ванной", "Вымыть ванну/душ, раковину", "weekly", 4),
-        ("Смена постельного белья", "Поменять бельё на кроватях", "weekly", 5),
-        ("Протереть пыль", "Протереть пыль на основных поверхностях", "weekly", 5),
-        ("Влажная уборка полов", "Вымыть полы во всех комнатах", "weekly", 6),
-        ("Вычесать кошку", None, "weekly", 2),
-        ("Поменять лоток", None, "weekly", 2),
-        ("Покормить черепаху", None, "twice_weekly", 1),
-
-        ("Мытьё окон и зеркал", "Вымыть стёкла и подоконники", "monthly", 5),
-        ("Разобрать холодильник", "Выкинуть просроченное, протереть полки", "monthly", 6),
-        ("Мытьё дверей и ручек", "Протереть двери, ручки, выключатели", "monthly", 7),
-        ("Мытьё духовки/микроволновки", "Отмыть внутри и снаружи", "monthly", 8),
-        ("Уборка в ящиках кухни", "Разбор и протирка ящиков/органайзеров", "monthly", 10),
-        ("Помыть поилку, насыпать корм", None, "twice_monthly", 2),
-        ("Заменить воду в аквариуме", None, "twice_monthly", 4),
-
-        ("Чистка вытяжки и фильтров", "Помыть фильтр и корпус вытяжки", "quarterly", 10),
-        ("Мытьё холодильника полностью", "Разморозка (если нужно), мойка", "quarterly", 10),
-        ("Протереть батареи", "Протереть батареи", "quarterly", 5),
-    ]
-
-    for title, desc, period, pts in defaults:
-        session.add(TaskTemplate(
-            title=title,
-            description=desc,
-            periodicity=period,
-            points=pts,
-        ))
-    session.commit()
-
-    today = get_today()
-    for tmpl in session.query(TaskTemplate).all():
-        session.add(TaskInstance(
-            template_id=tmpl.id,
-            date=today,
-            status="free",
-            priority="normal",
-        ))
-    session.commit()
-
 async def carry_over_tasks(context: ContextTypes.DEFAULT_TYPE):
     today_date = get_today()
     tomorrow = today_date + timedelta(days=1)
@@ -267,8 +213,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with SessionLocal() as session:
         get_or_create_user(session, update.effective_user)
-        ensure_default_tasks(session)
-
+    
     await update.message.reply_text(
         "Привет! Это бот для домашних дел.\n\n"
         "Основные команды:\n"
