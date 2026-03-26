@@ -13,6 +13,15 @@ from telegram import (
     KeyboardButton,
     BotCommand,
 )
+from db import (
+    SessionLocal,
+    init_db,
+    User,
+    TaskTemplate,
+    TaskInstance,
+    Completion,
+    get_today,
+)
 from telegram.ext import (
     ApplicationBuilder,
     Application,
@@ -1107,7 +1116,7 @@ async def webhook_handler(request):
 async def main():
     global application, MAIN_CHAT_ID
 
-    init_db()
+    init_db()  # из db.py
 
     application = (
         ApplicationBuilder()
