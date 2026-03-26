@@ -935,12 +935,30 @@ async def handle_template_edit_text(update: Update, context: ContextTypes.DEFAUL
                     "Не удалось распознать дату. Пришли в формате ГГГГ-ММ-ДД, например: 2026-04-01."
                 )
                 return
+
             old = tmpl.start_date
             tmpl.start_date = new_date
+
+            today_date = get_today()
+            moved_instances = (
+                session.query(TaskInstance)
+                .filter(
+                    TaskInstance.template_id == tmpl.id,
+                    TaskInstance.date >= today_date,
+                )
+                .all()
+            )
+            for inst in moved_instances:
+                inst.date = new_date
+
             session.commit()
+
             old_str = old.isoformat() if old else "не задана"
             await update.message.reply_text(
-                f"Дата начала обновлена ✅\n\nБыло: {old_str}\nСтало: {tmpl.start_date.isoformat()}"
+                f"Дата переноса задач обновлена ✅\n\n"
+                f"Было: {old_str}\n"
+                f"Стало: {new_date.isoformat()}\n\n"
+                f"Все будущие задачи этого типа перенесены на {new_date.isoformat()}."
             )
 
         else:
