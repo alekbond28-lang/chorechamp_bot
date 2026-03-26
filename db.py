@@ -1,6 +1,6 @@
-# db.py
 import os
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
     create_engine,
@@ -12,6 +12,7 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     Text,
+    BigInteger,
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
@@ -65,7 +66,6 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
-    from sqlalchemy import BigInteger
 
     telegram_id = Column(BigInteger, unique=True, index=True, nullable=False)
     username = Column(String, nullable=True)
@@ -87,9 +87,7 @@ class TaskTemplate(Base):
     description = Column(String, nullable=True)
     periodicity = Column(String, nullable=False, default="daily")
     points = Column(Integer, nullable=False, default=1)
-    # флаг удаления, вместо актив/деактив
     deleted = Column(Boolean, default=False)
-    # с какой даты начинать создавать инстансы
     start_date = Column(Date, nullable=True)
 
     house = relationship("House", back_populates="templates")
@@ -139,5 +137,7 @@ def init_db():
         print("❌ Ошибка БД:", repr(e))
 
 
+LOCAL_TZ = ZoneInfo("Europe/Moscow")
+
 def get_today() -> date:
-    return date.today()
+    return datetime.now(LOCAL_TZ).date()
