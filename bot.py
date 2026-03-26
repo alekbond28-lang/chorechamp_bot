@@ -1154,26 +1154,23 @@ async def main():
         name="generate_recurring_tasks",
     )
 
-    # Настроим команды в меню
+    # ИНИЦИАЛИЗАЦИЯ Application (обязательная в v21+)
+    await application.initialize()
+    await application.start()
     await setup_commands(application)
 
-    # Webhook URL для Render
-    app_name = os.getenv("RENDER_EXTERNAL_HOSTNAME")  # Render сам проставляет
-    if app_name:
-        base_url = f"https://{app_name}"
-    else:
-        base_url = os.getenv("WEBHOOK_BASE_URL", "https://your-app.onrender.com")  # на всякий случай
-
+    # Webhook URL
+    app_host = os.getenv("RENDER_EXTERNAL_HOSTNAME", "chorechamp-bot.onrender.com")
+    base_url = f"https://{app_host}"
     webhook_path = "/webhook"
     webhook_url = f"{base_url}{webhook_path}"
 
-    # Ставим webhook
     await application.bot.set_webhook(url=webhook_url)
 
-    # Поднимаем HTTP-сервер
+    # HTTP-сервер
     app = web.Application()
     app.router.add_post(webhook_path, webhook_handler)
-    app.router.add_get("/", health)  # твой health()
+    app.router.add_get("/", health)
 
     port = int(os.environ.get("PORT", 10000))
     runner = web.AppRunner(app)
@@ -1185,7 +1182,12 @@ async def main():
     print(f"Server started on port {port}")
 
     # Держим процесс живым
-    await asyncio.Event().wait()
+    try:
+        await asyncio.Event().wait()
+    finally:
+        # Корректная остановка при выключении
+        await application.stop()
+        await application.shutdown()
 
 
 if __name__ == "__main__":
