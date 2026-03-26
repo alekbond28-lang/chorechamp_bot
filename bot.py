@@ -52,9 +52,9 @@ ACCESS_TEXT = (
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
-        [KeyboardButton("/today"), KeyboardButton("/mytasks")],
+        [KeyboardButton("/today")],
         [KeyboardButton("/add"), KeyboardButton("/again")],
-        [KeyboardButton("/my_stats"), KeyboardButton("/leaderboard")],
+        [KeyboardButton("/leaderboard")],
         [KeyboardButton("/list_templates")],
     ],
     resize_keyboard=True,
@@ -306,61 +306,6 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=chat_id,
         text=title,
-        reply_markup=markup,
-    )
-
-async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    access_error = ensure_access(update)
-    if access_error:
-        await update.message.reply_text(access_error)
-        return
-
-    chat_id = update.effective_chat.id
-    today_date = get_today()
-    tg_user = update.effective_user
-
-    with SessionLocal() as session:
-        user = get_or_create_user(session, tg_user)
-
-        instances = (
-            session.query(TaskInstance)
-            .join(TaskTemplate)
-            .filter(TaskInstance.date == today_date)
-            .filter(
-                (TaskInstance.assigned_user_id == user.id)
-                | (TaskInstance.done_by_user_id == user.id)
-            )
-            .all()
-        )
-
-        if not instances:
-            await update.message.reply_text("На сегодня у тебя нет задач 🙂")
-            return
-
-        keyboard_rows = []
-        for inst in instances:
-            info_text = format_task_button_text(inst)
-            info_btn = InlineKeyboardButton(info_text, callback_data="noop")
-
-            if inst.status == "free":
-                action_btns = [InlineKeyboardButton("❓ Взять", callback_data=f"take:{inst.id}")]
-            elif inst.status == "in_progress" and inst.assigned_user_id == user.id:
-                action_btns = [
-                    InlineKeyboardButton("🕒 Выполнить", callback_data=f"done:{inst.id}"),
-                    InlineKeyboardButton("↩️ Вернуть", callback_data=f"return:{inst.id}"),
-                ]
-            elif inst.status == "done":
-                action_btns = [InlineKeyboardButton("✅ Выполнено", callback_data="noop")]
-            else:
-                action_btns = [InlineKeyboardButton("🚫 Занято", callback_data="noop")]
-
-            keyboard_rows.append([info_btn, *action_btns])
-
-        markup = InlineKeyboardMarkup(keyboard_rows)
-
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="Твои задачи на сегодня:",
         reply_markup=markup,
     )
 
@@ -893,47 +838,6 @@ async def allow_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ALLOWED_USER_IDS.add(new_id)
     await update.message.reply_text(f"Пользователь {new_id} добавлен в дом ✅")
 
-async def my_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    access_error = ensure_access(update)
-    if access_error:
-        await update.message.reply_text(access_error)
-        return
-
-    (week_start, week_end), (month_start, month_end), (year_start, year_end) = get_period_bounds_for_today()
-    tg_user = update.effective_user
-
-    with SessionLocal() as session:
-        user = get_or_create_user(session, tg_user)
-
-        comps = session.query(Completion).filter(Completion.user_id == user.id).all()
-
-        if not comps:
-            await update.message.reply_text("У тебя пока нет баллов 🙂")
-            return
-
-        total_all = total_week = total_month = total_year = 0
-
-        for comp in comps:
-            day = comp.created_at.date()
-            pts = comp.points
-
-            total_all += pts
-
-            if week_start <= day <= week_end:
-                total_week += pts
-            if month_start <= day <= month_end:
-                total_month += pts
-            if year_start <= day <= year_end:
-                total_year += pts
-
-    await update.message.reply_text(
-        "Твоя статистика:\n"
-        f"Неделя: {total_week}\n"
-        f"Месяц: {total_month}\n"
-        f"Год: {total_year}\n"
-        f"Всё время: {total_all}"
-    )
-
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     access_error = ensure_access(update)
     if access_error:
@@ -1090,10 +994,8 @@ async def setup_commands(application: Application):
     commands = [
         BotCommand("start", "Описание бота и главное меню"),
         BotCommand("today", "Показать задачи на сегодня"),
-        BotCommand("mytasks", "Мои задачи на сегодня"),
         BotCommand("add", "Добавить новую задачу"),
         BotCommand("again", "Отметить, что задача сделана ещё раз"),
-        BotCommand("my_stats", "Моя статистика"),
         BotCommand("leaderboard", "Лидеры по баллам"),
         BotCommand("list_templates", "Показать и управлять шаблонами задач"),
         BotCommand("allow", "Добавить участника (только владелец)"),
@@ -1124,10 +1026,8 @@ async def main():
     application.add_handler(CommandHandler("today", today))
     application.add_handler(CommandHandler("again", again))
     application.add_handler(CommandHandler("done", done))
-    application.add_handler(CommandHandler("my_stats", my_stats))
     application.add_handler(CommandHandler("leaderboard", leaderboard))
     application.add_handler(CommandHandler("allow", allow_user))
-    application.add_handler(CommandHandler("mytasks", mytasks))
     application.add_handler(CommandHandler("list_templates", list_templates))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_task_flow))
