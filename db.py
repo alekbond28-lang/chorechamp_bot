@@ -1,3 +1,4 @@
+# db.py
 import os
 from datetime import date, datetime
 
@@ -13,10 +14,12 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
+# 1. URL из переменной окружения Render
 DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+# 2. Engine + Session
 engine = create_engine(
     DATABASE_URL,
     echo=False,
@@ -28,7 +31,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
-
+# 3. Модели
 class User(Base):
     __tablename__ = "users"
 
