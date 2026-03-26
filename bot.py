@@ -787,16 +787,28 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         today_date = get_today()
 
         if is_today_message:
+            # после любого действия в экране today показываем только free-задачи
             instances = (
                 session.query(TaskInstance)
                 .join(TaskTemplate)
                 .filter(TaskInstance.date == today_date)
+                .filter(TaskInstance.status == "free")
                 .all()
             )
-            markup = build_today_keyboard(instances, user_tg.id)
+            tasks_markup = build_today_keyboard(instances, user_tg.id)
+
+            filter_row = [
+                InlineKeyboardButton("Free", callback_data="filter:free"),
+                InlineKeyboardButton("My", callback_data="filter:my"),
+                InlineKeyboardButton("Done", callback_data="filter:done"),
+            ]
+            full_keyboard = InlineKeyboardMarkup(
+                [filter_row] + list(tasks_markup.inline_keyboard)
+            )
+
             await query.edit_message_text(
-                text="Задачи на сегодня:",
-                reply_markup=markup,
+                text="Задачи на сегодня (фильтр: Free):",
+                reply_markup=full_keyboard,
             )
         elif is_mytasks_message:
             instances = (
