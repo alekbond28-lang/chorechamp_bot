@@ -13,15 +13,6 @@ from telegram import (
     KeyboardButton,
     BotCommand,
 )
-from db import (
-    SessionLocal,
-    init_db,
-    User,
-    TaskTemplate,
-    TaskInstance,
-    Completion,
-    get_today,
-)
 from telegram.ext import (
     ApplicationBuilder,
     Application,
@@ -44,6 +35,9 @@ from db import (
 
 load_dotenv()
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN не задан в переменных окружения")
+
 LOCAL_TZ = ZoneInfo("Europe/Moscow")
 MAIN_CHAT_ID = None
 
@@ -68,16 +62,6 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
 )
 
 # ---------- Вспомогательные функции ----------
-def init_db():
-    print("Init DB, URL:", DATABASE_URL)
-    try:
-        with engine.connect() as conn:
-            print("✅ БД подключена:", conn.engine.url)
-        print("Создаю таблицы...")
-        Base.metadata.create_all(bind=engine)
-        print("✅ Таблицы созданы")
-    except Exception as e:
-        print("❌ Ошибка БД:", repr(e))
 
 def is_owner(update: Update) -> bool:
     user = update.effective_user
@@ -491,8 +475,6 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def again(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показать задачи, которые сегодня в работе или уже выполнены (любым пользователем),
-    и дать возможность добавить такую задачу ещё раз как новую свободную."""
     access_error = ensure_access(update)
     if access_error:
         await update.message.reply_text(access_error)
@@ -768,7 +750,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             session.commit()
 
         elif action == "again":
-            # НОВАЯ ЛОГИКА: создаём новый инстанс задачи на сегодня, свободный, без исполнителя
             today_date = get_today()
             new_inst = TaskInstance(
                 template_id=tmpl.id,
@@ -966,7 +947,7 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return f"{title}: пока никто не в лидерах"
             lines = []
             for uid, pts in sorted(data_dict.items(), key=lambda x: x[1], reverse=True)[:3]:
-                u = session.get(User, uid)
+                u = next(u for u, c in rows if u.id == uid)
                 name = u.full_name or u.username or str(u.telegram_id)
                 lines.append(f"{name}: {pts}")
             return f"{title}:\n" + "\n".join(lines)
@@ -1075,19 +1056,9 @@ async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
 async def health(request):
     return web.Response(text="OK")
 
-async def run_http_server():
-    app = web.Application()
-    app.router.add_get("/", health)
-    runner = web.AppRunner(app)
-    await runner.setup()
-
-    port = int(os.environ.get("PORT", 10000))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-
 # -------- setup команд --------
 
-async def setup_commands(application):
+async def setup_commands(application: Application):
     commands = [
         BotCommand("start", "Описание бота и главное меню"),
         BotCommand("today", "Показать задачи на сегодня"),
@@ -1101,10 +1072,9 @@ async def setup_commands(application):
     ]
     await application.bot.set_my_commands(commands)
 
-# -------- Запуск бота + HTTP-сервер --------
+# -------- Глобальное приложение и webhook_handler --------
 
 application: Application  # глобально, чтобы был доступен в webhook_handler
-
 
 async def webhook_handler(request):
     data = await request.json()
@@ -1112,11 +1082,13 @@ async def webhook_handler(request):
     await application.process_update(update)
     return web.Response(text="OK")
 
+# -------- Запуск бота + HTTP-сервер --------
 
 async def main():
     global application, MAIN_CHAT_ID
 
-    init_db()  # из db.py
+    # Инициализация БД (создание таблиц)
+    init_db()
 
     application = (
         ApplicationBuilder()
@@ -1165,12 +1137,12 @@ async def main():
         name="generate_recurring_tasks",
     )
 
-    # ИНИЦИАЛИЗАЦИЯ Application (обязательная в v21+)
+    # Обязательная инициализация Application в v21+
     await application.initialize()
     await application.start()
     await setup_commands(application)
 
-    # Webhook URL
+    # Webhook URL (Render даёт RENDER_EXTERNAL_HOSTNAME)
     app_host = os.getenv("RENDER_EXTERNAL_HOSTNAME", "chorechamp-bot.onrender.com")
     base_url = f"https://{app_host}"
     webhook_path = "/webhook"
@@ -1178,7 +1150,7 @@ async def main():
 
     await application.bot.set_webhook(url=webhook_url)
 
-    # HTTP-сервер
+    # HTTP-сервер для Telegram webhook + healthcheck
     app = web.Application()
     app.router.add_post(webhook_path, webhook_handler)
     app.router.add_get("/", health)
@@ -1196,7 +1168,6 @@ async def main():
     try:
         await asyncio.Event().wait()
     finally:
-        # Корректная остановка при выключении
         await application.stop()
         await application.shutdown()
 
