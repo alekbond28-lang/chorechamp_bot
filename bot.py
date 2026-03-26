@@ -64,6 +64,17 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
     resize_keyboard=True,
 )
 
+HOUSE_NAMES = [
+    "Гнездо героев",
+    "Домовой штаб HomeHero",
+    "Вселенная порядка",
+    "Лига чистоты",
+    "Команда супер-уборки",
+]
+
+def random_house_name() -> str:
+    return random.choice(HOUSE_NAMES)
+
 
 # ---------- Вспомогательные ----------
 
@@ -130,7 +141,7 @@ def get_period_bounds_for_today():
 # ---------- Дом, онбординг ----------
 
 DEFAULT_ONBOARDING_TEXT = (
-    "Добро пожаловать в домовой бот ChoreChamp!\n\n"
+    "Добро пожаловать в домовой бот HomeHero!\n\n"
     "Как пользоваться:\n\n"
     "• /today — главный экран.\n"
     "  Показывает задачи на сегодня с вкладками:\n"
@@ -171,17 +182,22 @@ def user_in_house(session, tg_user) -> tuple[User | None, House | None]:
 
 def format_task_button_text(inst: TaskInstance) -> str:
     tmpl = inst.template
-    prefix = "[HIGH] " if inst.priority == "high" else ""
+    prefix = ""
+    if getattr(inst, "priority", None) == "high":
+        prefix = "🔥 "
+
     status_text = {
         "free": "⚪ свободна",
         "in_progress": "🕒 в работе",
         "done": "✅ выполнена",
     }.get(inst.status, inst.status)
+
     performer = ""
     if inst.status in ("in_progress", "done") and inst.assigned_user:
         performer_name = inst.assigned_user.full_name or inst.assigned_user.username
         performer = f" у {performer_name}"
-    return f"{inst.id}. {prefix}{tmpl.title} — {tmpl.points} баллов — {status_text}{performer}"
+
+    return f"{prefix}{tmpl.title} — {tmpl.points} баллов — {status_text}{performer}"
 
 def build_today_keyboard(instances, current_tg_id: int):
     keyboard_rows = []
@@ -247,7 +263,6 @@ def build_today_view(session, tab: str, tg_user) -> tuple[str, InlineKeyboardMar
         title = "Задачи на сегодня"
         empty_text = "На сегодня задач нет."
 
-    # Если вообще ничего нет ни в одной вкладке
     if tab == "free" and not instances:
         my_exists = base_q.filter(
             TaskInstance.status == "in_progress",
@@ -360,6 +375,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
             ]
             await update.message.reply_text(
+                "Привет! Я HomeHero — бот, который помогает честно распределять домашние дела.\n\n"
                 "Для использования бота нужно быть в доме.\n\n"
                 "1. Создайте новый дом.\n"
                 "2. Или сообщите владельцу дома ваш код: {uid} и дождитесь приглашения.\n\n"
@@ -371,12 +387,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         house = session.query(House).filter_by(id=user.house_id).first()
 
     await update.message.reply_text(
-        "Привет! Ты уже в доме.\n"
+        f"Привет! Ты уже в доме «{house.name or 'без названия'}».\n"
         "Используй /today, чтобы посмотреть задачи на сегодня.",
         reply_markup=MAIN_KEYBOARD,
     )
 
-    # отправим инструкцию отдельно
     with SessionLocal() as session:
         _, house = user_in_house(session, tg_user)
         if house:
@@ -733,7 +748,6 @@ async def allow_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(f"Пользователь {new_id} добавлен в дом ✅")
 
-        # отправим инструкцию в текущий чат
         await send_house_onboarding_message(update.get_bot(), update.effective_chat.id, house, session)
 
 
@@ -763,7 +777,7 @@ async def send_daily_digest(context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         chat_id=chat_id,
-        text="Ежедневный дайджест задач:\n" + "\n".join(lines),
+        text="Ежедневный дайджест задач от HomeHero:\n" + "\n".join(lines),
     )
 
 
@@ -871,19 +885,19 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     data = query.data or ""
     user_tg = query.from_user
 
-    # создание дома
     if data == "house:create":
         with SessionLocal() as session:
             user = get_or_create_user(session, tg_user)
             if user.house_id:
                 house = session.query(House).filter_by(id=user.house_id).first()
                 await query.edit_message_text(
-                    f"Ты уже в доме. Код дома: {house.join_code}"
+                    f"Ты уже в доме «{house.name or 'без названия'}».\n"
+                    f"Код дома: {house.join_code}"
                 )
                 return
 
             code = generate_join_code()
-            house = House(name=None, join_code=code)
+            house = House(name=random_house_name(), join_code=code)
             session.add(house)
             session.commit()
 
@@ -892,16 +906,14 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             session.commit()
 
             await query.edit_message_text(
-                "Дом создан!\n\n"
+                f"Дом «{house.name}» создан! 🏠\n\n"
                 f"Код дома: {house.join_code}\n"
                 "Передай его участникам, чтобы владелец добавил их через /allow."
             )
 
-            # инструкция
             await send_house_onboarding_message(query.get_bot(), query.message.chat_id, house, session)
         return
 
-    # вкладки today
     if data.startswith("filter:"):
         _, _, filter_code = data.partition(":")
         tab = {
@@ -919,7 +931,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    # выбор периодичности при добавлении задачи
     if data.startswith("period:"):
         period_code = data.split(":", 1)[1]
 
@@ -958,8 +969,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             ))
             session.commit()
 
-        context.user_data.clear()
-
         period_human = {
             "once": "единоразово",
             "daily": "ежедневно",
@@ -978,7 +987,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    # настройки шаблона
     if data.startswith("template_settings:"):
         _, _, raw_id = data.partition(":")
         try:
@@ -1091,12 +1099,10 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     if data == "templates_back":
-        # просто перепоказываем список шаблонов
         fake_update = Update(
             update_id=update.update_id,
             message=update.effective_message,
         )
-        # проще вызвать list_templates как команду
         await list_templates(fake_update, context)
         return
 
@@ -1204,13 +1210,24 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             tmpl.periodicity = period_code
             session.commit()
 
-            await query.edit_message_text("Периодичность обновлена.")
+        period_human = {
+            "once": "единоразово",
+            "daily": "ежедневно",
+            "weekly": "еженедельно",
+            "twice_weekly": "2 раза в неделю",
+            "monthly": "ежемесячно",
+            "twice_monthly": "2 раза в месяц",
+            "quarterly": "ежеквартально",
+        }.get(period_code, period_code)
+
+        await query.edit_message_text(
+            f"Периодичность обновлена ✅\n\nТеперь: {period_human}"
+        )
         return
 
     if data == "noop":
         return
 
-    # остальное — логика задач (take/done/again) такая же, как была
     action, _, raw_id = data.partition(":")
     try:
         instance_id = int(raw_id)
@@ -1330,7 +1347,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
 
         elif is_mytasks_message:
-            # если оставишь /mytasks — логика как раньше, но сейчас она не используется
             await query.edit_message_text("Экран /mytasks скоро будет удалён.")
         else:
             if inst.status == "free":
