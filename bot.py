@@ -282,10 +282,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Привет! Это бот для домашних дел.\n\n"
         "Основные команды:\n"
         "• /today — дела на сегодня\n"
-        "• /mytasks — мои задачи на сегодня\n"
         "• /add — добавить новую задачу\n"
         "• /again — отметить, что задача сделана ещё раз\n"
-        "• /my_stats — моя статистика\n"
         "• /leaderboard — лидеры по баллам\n"
         "• /list_templates — управление шаблонами",
         reply_markup=MAIN_KEYBOARD,
