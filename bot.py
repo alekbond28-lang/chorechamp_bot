@@ -60,13 +60,15 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
 
 # ---------- Вспомогательные функции ----------
 def init_db():
+    print("Init DB, URL:", DATABASE_URL)
     try:
         with engine.connect() as conn:
-            print("✅ БД подключена:", DATABASE_URL.split('@')[1].split('/')[0])
+            print("✅ БД подключена:", conn.engine.url)
+        print("Создаю таблицы...")
         Base.metadata.create_all(bind=engine)
         print("✅ Таблицы созданы")
     except Exception as e:
-        print(f"❌ Ошибка БД: {e}")
+        print("❌ Ошибка БД:", repr(e))
 
 def is_owner(update: Update) -> bool:
     user = update.effective_user
