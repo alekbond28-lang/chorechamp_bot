@@ -744,8 +744,6 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         today_date = get_today()
 
-                today_date = get_today()
-
         if is_today_message:
             # определяем текущую вкладку по тексту сообщения
             msg_text = query.message.text or ""
