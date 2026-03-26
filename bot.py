@@ -300,95 +300,14 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.effective_chat.id
-    today_date = get_today()
-    tg_id = update.effective_user.id
-
-    with SessionLocal() as session:
-        # по умолчанию показываем только free
-        instances = (
-            session.query(TaskInstance)
-            .join(TaskTemplate)
-            .filter(TaskInstance.date == today_date)
-            .filter(TaskInstance.status == "free")
-            .all()
-        )
-
-        if not instances:
-            await update.message.reply_text("На сегодня свободных дел нет! 🎉")
-            return
-
-        tasks_markup = build_today_keyboard(instances, tg_id)
-
-    # ряд фильтров
-    filter_row = [
-        InlineKeyboardButton("Free", callback_data="filter:free"),
-        InlineKeyboardButton("My", callback_data="filter:my"),
-        InlineKeyboardButton("Done", callback_data="filter:done"),
-    ]
-
-    # склеиваем фильтры + задачи в одну разметку
-    full_keyboard = InlineKeyboardMarkup(
-    [filter_row] + list(tasks_markup.inline_keyboard)
-)
-
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="Задачи на сегодня (фильтр: Free):",
-        reply_markup=full_keyboard,
-    )
-
-async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    access_error = ensure_access(update)
-    if access_error:
-        await update.message.reply_text(access_error)
-        return
-
-    chat_id = update.effective_chat.id
-    today_date = get_today()
     tg_user = update.effective_user
 
     with SessionLocal() as session:
-        user = get_or_create_user(session, tg_user)
-
-        instances = (
-            session.query(TaskInstance)
-            .join(TaskTemplate)
-            .filter(TaskInstance.date == today_date)
-            .filter(
-                (TaskInstance.assigned_user_id == user.id)
-                | (TaskInstance.done_by_user_id == user.id)
-            )
-            .all()
-        )
-
-        if not instances:
-            await update.message.reply_text("На сегодня у тебя нет задач 🙂")
-            return
-
-        keyboard_rows = []
-        for inst in instances:
-            info_text = format_task_button_text(inst)
-            info_btn = InlineKeyboardButton(info_text, callback_data="noop")
-
-            if inst.status == "free":
-                action_btns = [InlineKeyboardButton("❓ Взять", callback_data=f"take:{inst.id}")]
-            elif inst.status == "in_progress" and inst.assigned_user_id == user.id:
-                action_btns = [
-                    InlineKeyboardButton("🕒 Выполнить", callback_data=f"done:{inst.id}"),
-                    InlineKeyboardButton("↩️ Вернуть", callback_data=f"return:{inst.id}"),
-                ]
-            elif inst.status == "done":
-                action_btns = [InlineKeyboardButton("✅ Выполнено", callback_data="noop")]
-            else:
-                action_btns = [InlineKeyboardButton("🚫 Занято", callback_data="noop")]
-
-            keyboard_rows.append([info_btn, *action_btns])
-
-        markup = InlineKeyboardMarkup(keyboard_rows)
+        title, markup = build_today_view(session, "free", tg_user)
 
     await context.bot.send_message(
         chat_id=chat_id,
-        text="Твои задачи на сегодня:",
+        text=title,
         reply_markup=markup,
     )
 
@@ -503,6 +422,73 @@ async def list_templates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ---------- CallbackQuery хендлер ----------
+def build_today_view(session, tab: str, tg_user) -> tuple[str, InlineKeyboardMarkup]:
+    """tab: 'free' | 'my' | 'done'"""
+    today_date = get_today()
+    base_q = (
+        session.query(TaskInstance)
+        .join(TaskTemplate)
+        .filter(TaskInstance.date == today_date)
+    )
+
+    if tab == "free":
+        q = base_q.filter(TaskInstance.status == "free")
+        instances = q.all()
+        title = "Задачи на сегодня (вкладка: Free)"
+        empty_text = "Свободных задач на сегодня нет."
+    elif tab == "my":
+        user_db = get_or_create_user(session, tg_user)
+        q = base_q.filter(
+            TaskInstance.status == "in_progress",
+            TaskInstance.assigned_user_id == user_db.id,
+        )
+        instances = q.all()
+        title = "Задачи на сегодня (вкладка: My)"
+        empty_text = "У тебя сейчас нет задач в работе."
+    elif tab == "done":
+        q = base_q.filter(TaskInstance.status == "done")
+        instances = q.all()
+        title = "Задачи на сегодня (вкладка: Done)"
+        empty_text = "Сегодня ещё никто не завершал задачи."
+    else:
+        instances = []
+        title = "Задачи на сегодня"
+        empty_text = "На сегодня задач нет."
+
+    # Если вообще ничего нет ни в одной вкладке
+    if tab == "free" and not instances:
+        # проверяем my и done
+        user_db = get_or_create_user(session, tg_user)
+        my_exists = base_q.filter(
+            TaskInstance.status == "in_progress",
+            TaskInstance.assigned_user_id == user_db.id,
+        ).first()
+        done_exists = base_q.filter(TaskInstance.status == "done").first()
+
+        if not my_exists and not done_exists:
+            title = "Ты хорошо поработал, задач больше нет, до завтра!"
+            # пустая клавиатура, только фильтры
+            filter_row = [
+                InlineKeyboardButton("Free", callback_data="filter:free"),
+                InlineKeyboardButton("My", callback_data="filter:my"),
+                InlineKeyboardButton("Done", callback_data="filter:done"),
+            ]
+            markup = InlineKeyboardMarkup([filter_row])
+            return title, markup
+
+    tasks_markup = build_today_keyboard(instances, tg_user.id)
+    filter_row = [
+        InlineKeyboardButton("Free", callback_data="filter:free"),
+        InlineKeyboardButton("My", callback_data="filter:my"),
+        InlineKeyboardButton("Done", callback_data="filter:done"),
+    ]
+    full_keyboard = InlineKeyboardMarkup(
+        [filter_row] + list(tasks_markup.inline_keyboard)
+    )
+    if not instances:
+        # если текущая вкладка пуста, но другие есть
+        title = empty_text
+    return title, full_keyboard
 
 async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -519,49 +505,21 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     data = query.data or ""
     user_tg = query.from_user
 
-    # --- новый блок: фильтры в today ---
+        # --- вкладки в today ---
     if data.startswith("filter:"):
         _, _, filter_code = data.partition(":")
-        today_date = get_today()
+        tab = {
+            "free": "free",
+            "my": "my",
+            "done": "done",
+        }.get(filter_code, "free")
 
         with SessionLocal() as session:
-            q = (
-                session.query(TaskInstance)
-                .join(TaskTemplate)
-                .filter(TaskInstance.date == today_date)
-            )
-
-            if filter_code == "free":
-                q = q.filter(TaskInstance.status == "free")
-                title = "Задачи на сегодня (фильтр: Free):"
-            elif filter_code == "my":
-                user_db = get_or_create_user(session, user_tg)
-                q = q.filter(
-                    TaskInstance.status == "in_progress",
-                    TaskInstance.assigned_user_id == user_db.id,
-                )
-                title = "Задачи на сегодня (фильтр: My):"
-            elif filter_code == "done":
-                q = q.filter(TaskInstance.status == "done")
-                title = "Задачи на сегодня (фильтр: Done):"
-            else:
-                title = "Задачи на сегодня:"
-
-            instances = q.all()
-            tasks_markup = build_today_keyboard(instances, user_tg.id)
-
-        filter_row = [
-            InlineKeyboardButton("Free", callback_data="filter:free"),
-            InlineKeyboardButton("My", callback_data="filter:my"),
-            InlineKeyboardButton("Done", callback_data="filter:done"),
-        ]
-        full_keyboard = InlineKeyboardMarkup(
-            [filter_row] + list(tasks_markup.inline_keyboard)
-        )
+            title, markup = build_today_view(session, tab, user_tg)
 
         await query.edit_message_text(
             text=title,
-            reply_markup=full_keyboard,
+            reply_markup=markup,
         )
         return
 
@@ -786,29 +744,51 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         today_date = get_today()
 
-        if is_today_message:
-            # после любого действия в экране today показываем только free-задачи
-            instances = (
-                session.query(TaskInstance)
-                .join(TaskTemplate)
-                .filter(TaskInstance.date == today_date)
-                .filter(TaskInstance.status == "free")
-                .all()
-            )
-            tasks_markup = build_today_keyboard(instances, user_tg.id)
+                today_date = get_today()
 
-            filter_row = [
-                InlineKeyboardButton("Free", callback_data="filter:free"),
-                InlineKeyboardButton("My", callback_data="filter:my"),
-                InlineKeyboardButton("Done", callback_data="filter:done"),
-            ]
-            full_keyboard = InlineKeyboardMarkup(
-                [filter_row] + list(tasks_markup.inline_keyboard)
-            )
+        if is_today_message:
+            # определяем текущую вкладку по тексту сообщения
+            msg_text = query.message.text or ""
+            if "My" in msg_text or "вкладка: My" in msg_text:
+                current_tab = "my"
+            elif "Done" in msg_text or "вкладка: Done" in msg_text:
+                current_tab = "done"
+            else:
+                current_tab = "free"
+
+            with SessionLocal() as session:
+                base_title, _ = build_today_view(session, current_tab, user_tg)
+
+                # логика переключения после действия:
+                # 1) после take в вкладке Free:
+                #    - задача уходит в My, остаёмся на Free, если там ещё есть задачи
+                #    - если свободных не осталось, переключаемся на My
+                # 2) после done в вкладке My:
+                #    - задача уходит в Done, остаёмся на My, если там ещё есть задачи
+                #    - если в My больше нет задач, переключаемся на Free
+                if action == "take" and current_tab == "free":
+                    # проверяем, остались ли свободные
+                    free_title, free_markup = build_today_view(session, "free", user_tg)
+                    if "нет" in free_title and "Свободных задач" in free_title:
+                        # свободных больше нет — идём в My
+                        title, markup = build_today_view(session, "my", user_tg)
+                    else:
+                        title, markup = free_title, free_markup
+                elif action == "done" and current_tab == "my":
+                    # проверяем, остались ли задачи в работе
+                    my_title, my_markup = build_today_view(session, "my", user_tg)
+                    if "нет задач в работе" in my_title:
+                        # в My пусто — идём в Free
+                        title, markup = build_today_view(session, "free", user_tg)
+                    else:
+                        title, markup = my_title, my_markup
+                else:
+                    # во всех остальных случаях просто перерисовываем текущую вкладку
+                    title, markup = build_today_view(session, current_tab, user_tg)
 
             await query.edit_message_text(
-                text="Задачи на сегодня (фильтр: Free):",
-                reply_markup=full_keyboard,
+                text=title,
+                reply_markup=markup,
             )
         elif is_mytasks_message:
             instances = (
