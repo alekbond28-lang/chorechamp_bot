@@ -301,25 +301,40 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.effective_chat.id
     today_date = get_today()
+    tg_id = update.effective_user.id
 
     with SessionLocal() as session:
+        # по умолчанию показываем только free
         instances = (
             session.query(TaskInstance)
             .join(TaskTemplate)
             .filter(TaskInstance.date == today_date)
+            .filter(TaskInstance.status == "free")
             .all()
         )
 
         if not instances:
-            await update.message.reply_text("На сегодня дел нет! 🎉")
+            await update.message.reply_text("На сегодня свободных дел нет! 🎉")
             return
 
-        markup = build_today_keyboard(instances, update.effective_user.id)
+        tasks_markup = build_today_keyboard(instances, tg_id)
+
+    # ряд фильтров
+    filter_row = [
+        InlineKeyboardButton("Free", callback_data="filter:free"),
+        InlineKeyboardButton("My", callback_data="filter:my"),
+        InlineKeyboardButton("Done", callback_data="filter:done"),
+    ]
+
+    # склеиваем фильтры + задачи в одну разметку
+    full_keyboard = InlineKeyboardMarkup(
+        [filter_row] + tasks_markup.inline_keyboard
+    )
 
     await context.bot.send_message(
         chat_id=chat_id,
-        text="Задачи на сегодня:",
-        reply_markup=markup,
+        text="Задачи на сегодня (фильтр: Free):",
+        reply_markup=full_keyboard,
     )
 
 async def mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -503,6 +518,56 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
     data = query.data or ""
     user_tg = query.from_user
+
+    # --- новый блок: фильтры в today ---
+    if data.startswith("filter:"):
+        _, _, filter_code = data.partition(":")
+        today_date = get_today()
+
+        with SessionLocal() as session:
+            q = (
+                session.query(TaskInstance)
+                .join(TaskTemplate)
+                .filter(TaskInstance.date == today_date)
+            )
+
+            if filter_code == "free":
+                q = q.filter(TaskInstance.status == "free")
+                title = "Задачи на сегодня (фильтр: Free):"
+            elif filter_code == "my":
+                user_db = get_or_create_user(session, user_tg)
+                q = q.filter(
+                    TaskInstance.status == "in_progress",
+                    TaskInstance.assigned_user_id == user_db.id,
+                )
+                title = "Задачи на сегодня (фильтр: My):"
+            elif filter_code == "done":
+                q = q.filter(TaskInstance.status == "done")
+                title = "Задачи на сегодня (фильтр: Done):"
+            else:
+                title = "Задачи на сегодня:"
+
+            instances = q.all()
+            tasks_markup = build_today_keyboard(instances, user_tg.id)
+
+        filter_row = [
+            InlineKeyboardButton("Free", callback_data="filter:free"),
+            InlineKeyboardButton("My", callback_data="filter:my"),
+            InlineKeyboardButton("Done", callback_data="filter:done"),
+        ]
+        full_keyboard = InlineKeyboardMarkup(
+            [filter_row] + tasks_markup.inline_keyboard
+        )
+
+        await query.edit_message_text(
+            text=title,
+            reply_markup=full_keyboard,
+        )
+        return
+
+    # выбор периодичности при добавлении задачи
+    if data.startswith("period:"):
+        ...
 
     # выбор периодичности при добавлении задачи
     if data.startswith("period:"):
