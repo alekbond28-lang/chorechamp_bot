@@ -11,10 +11,9 @@ from sqlalchemy import (
     DateTime,
     Boolean,
     ForeignKey,
+    Text,
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
-
-# -------- URL БД из переменной окружения Render --------
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
@@ -23,7 +22,6 @@ if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL не задан в переменных окружения")
 
-# Engine + Session
 engine = create_engine(
     DATABASE_URL,
     echo=False,
@@ -36,7 +34,32 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
 
-# -------- Модели --------
+class House(Base):
+    __tablename__ = "houses"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=True)
+    join_code = Column(String, unique=True, index=True, nullable=False)
+
+    users = relationship("User", back_populates="house")
+    templates = relationship("TaskTemplate", back_populates="house")
+    onboarding_text = relationship(
+        "HouseOnboarding",
+        uselist=False,
+        back_populates="house",
+        cascade="all, delete-orphan",
+    )
+
+
+class HouseOnboarding(Base):
+    __tablename__ = "house_onboarding"
+
+    id = Column(Integer, primary_key=True)
+    house_id = Column(Integer, ForeignKey("houses.id"), nullable=False, unique=True)
+    text = Column(Text, nullable=False)
+
+    house = relationship("House", back_populates="onboarding_text")
+
 
 class User(Base):
     __tablename__ = "users"
@@ -46,17 +69,28 @@ class User(Base):
     username = Column(String, nullable=True)
     full_name = Column(String, nullable=True)
 
+    house_id = Column(Integer, ForeignKey("houses.id"), nullable=True)
+    is_house_owner = Column(Boolean, default=False)
+
+    house = relationship("House", back_populates="users")
+
 
 class TaskTemplate(Base):
     __tablename__ = "task_templates"
 
     id = Column(Integer, primary_key=True)
+    house_id = Column(Integer, ForeignKey("houses.id"), nullable=False)
+
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
     periodicity = Column(String, nullable=False, default="daily")
     points = Column(Integer, nullable=False, default=1)
-    active = Column(Boolean, default=True)
+    # флаг удаления, вместо актив/деактив
+    deleted = Column(Boolean, default=False)
+    # с какой даты начинать создавать инстансы
+    start_date = Column(Date, nullable=True)
 
+    house = relationship("House", back_populates="templates")
     instances = relationship("TaskInstance", back_populates="template")
 
 
@@ -90,8 +124,6 @@ class Completion(Base):
     user = relationship("User")
     task_instance = relationship("TaskInstance")
 
-
-# -------- Инициализация БД --------
 
 def init_db():
     print("Init DB, URL:", DATABASE_URL)
