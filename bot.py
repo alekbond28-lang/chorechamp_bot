@@ -328,8 +328,8 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # склеиваем фильтры + задачи в одну разметку
     full_keyboard = InlineKeyboardMarkup(
-        [filter_row] + tasks_markup.inline_keyboard
-    )
+    [filter_row] + list(tasks_markup.inline_keyboard)
+)
 
     await context.bot.send_message(
         chat_id=chat_id,
@@ -556,7 +556,7 @@ async def task_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             InlineKeyboardButton("Done", callback_data="filter:done"),
         ]
         full_keyboard = InlineKeyboardMarkup(
-            [filter_row] + tasks_markup.inline_keyboard
+            [filter_row] + list(tasks_markup.inline_keyboard)
         )
 
         await query.edit_message_text(
